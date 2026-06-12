@@ -1,0 +1,13 @@
+## Interface: 11508
+## Title: AutoFeed
+## Notes: One-button auto-updating macros for food, water, potions, and scroll buffs. Built for Classic Hardcore.
+## Author: vebjorn
+## Version: 1.0.0
+## IconTexture: Interface\Icons\INV_Misc_Food_15
+## SavedVariables: AutoFeedDB
+## X-Category: Inventory
+## X-Website: https://github.com/vBaustad/AutoFeed
+## X-License: MIT
+
+Core.lua
+Options.lua
