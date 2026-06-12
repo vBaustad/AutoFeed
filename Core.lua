@@ -90,6 +90,11 @@ local function ParseRestore(t, resource)
     return nil
 end
 
+-- An item's tooltip never changes for a given itemID, so parse it once and
+-- cache the static classification. false = "not a consumable we care about".
+-- Bounded by distinct items seen in bags - tiny.
+local classifyCache = {}
+
 local function Classify(bag, slot)
     local info = C_Container.GetContainerItemInfo(bag, slot)
     if not info or not info.itemID then return nil end
@@ -97,13 +102,30 @@ local function Classify(bag, slot)
     local itemID = info.itemID
     if AF.db.blacklist[itemID] then return nil end
 
+    local cached = classifyCache[itemID]
+    if cached == false then return nil end
+    if cached then
+        return {
+            id       = itemID,
+            name     = cached.name,
+            count    = info.stackCount or 1,
+            reqLevel = cached.reqLevel,
+            buff     = cached.buff,
+            conjured = cached.conjured,
+            health   = cached.health,
+            mana     = cached.mana,
+            kind     = cached.kind,
+        }
+    end
+
     -- Gate on Consumable (classID 0). Classic reports food as several different
     -- subclasses, so we don't trust the subclass number -- we classify food vs
     -- potion from the tooltip wording below ("restores X over N sec" = food).
     local _, _, _, _, _, classID, subClassID = GetItemInfoInstant(itemID)
-    if classID ~= 0 then return nil end
+    if classID ~= 0 then classifyCache[itemID] = false; return nil end
 
     local itemName = GetItemInfo(itemID)
+    local loaded = itemName ~= nil
     if not itemName then
         -- not cached yet; ask for it and skip this pass
         if C_Item and C_Item.RequestLoadItemDataByID then
@@ -113,8 +135,13 @@ local function Classify(bag, slot)
     end
     local lname = itemName:lower()
 
+    local lines = GetTooltipLines(bag, slot)
+    -- Only cache verdicts based on fully-loaded data, so slow-loading items
+    -- get re-examined next scan instead of being misclassified forever.
+    local cacheable = loaded and #lines > 0
+
     local health, mana, reqLevel, buff, overTime = 0, 0, 0, false, false
-    for _, raw in ipairs(GetTooltipLines(bag, slot)) do
+    for _, raw in ipairs(lines) do
         local t = raw:lower()
         local h = ParseRestore(t, "health")
         if h then health = h; if t:find("over%s+%d") then overTime = true end end
@@ -125,7 +152,10 @@ local function Classify(bag, slot)
         if t:find("well fed") then buff = true end
     end
 
-    if health == 0 and mana == 0 then return nil end
+    if health == 0 and mana == 0 then
+        if cacheable then classifyCache[itemID] = false end
+        return nil
+    end
 
     -- Food/drink restores over time; potions are instant. Use the subclass when
     -- it's the well-known value, otherwise fall back to the "over time" wording.
@@ -144,7 +174,16 @@ local function Classify(bag, slot)
     -- cooldown and would double-fire in the fallback list. Real potions are
     -- subclass 1 or literally contain "Potion" in the name (enUS).
     if kind == "potion" and subClassID ~= 1 and not lname:find("potion") then
+        if cacheable then classifyCache[itemID] = false end
         return nil
+    end
+
+    local conjured = (lname:find("conjured") ~= nil)
+    if cacheable then
+        classifyCache[itemID] = {
+            name = itemName, reqLevel = reqLevel, buff = buff, conjured = conjured,
+            health = health, mana = mana, kind = kind,
+        }
     end
 
     return {
@@ -153,7 +192,7 @@ local function Classify(bag, slot)
         count    = info.stackCount or 1,
         reqLevel = reqLevel,
         buff     = buff,
-        conjured = (lname:find("conjured") ~= nil),
+        conjured = conjured,
         health   = health,
         mana     = mana,
         kind     = kind,
@@ -298,10 +337,12 @@ end
 -- Writes one macro by name, skipping the call if the body is unchanged.
 function AF:WriteMacro(name, body)
     self.lastBody = self.lastBody or {}
-    if self.lastBody[name] == body then return end
+    local idx = GetMacroIndexByName(name)
+    -- Skip only if unchanged AND the macro still exists (the user may have
+    -- deleted it manually; recreate it in that case).
+    if self.lastBody[name] == body and idx and idx > 0 then return end
     self.lastBody[name] = body
 
-    local idx = GetMacroIndexByName(name)
     if idx and idx > 0 then
         pcall(EditMacro, idx, name, DYNAMIC_ICON, body)
     else
@@ -476,6 +517,12 @@ f:SetScript("OnEvent", function(_, event)
             .. "' (food) and '" .. AF.db.drinkMacroName .. "' (water).")
     elseif event == "PLAYER_REGEN_ENABLED" then
         if AF.pending then AF:UpdateMacro() end
+    elseif event == "UNIT_AURA" then
+        -- Aura changes only matter for the scroll cycler, and macros can't be
+        -- edited in combat anyway - skip the rescan entirely otherwise.
+        if AF.db and AF.db.includeScrolls and not InCombatLockdown() then
+            AF:ScheduleUpdate()
+        end
     else -- BAG_UPDATE_DELAYED / PLAYER_LEVEL_UP
         if AF.db then AF:ScheduleUpdate() end
     end

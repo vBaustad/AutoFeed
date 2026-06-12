@@ -1,5 +1,7 @@
 # AutoFeed
 
+<img src="Autofeed.png" alt="AutoFeed logo" width="160" align="right">
+
 **One button to eat, drink, pot, and buff.** AutoFeed keeps a small set of self-updating macros pointed at the best consumables in your bags, so you never have to drag food, water, potions, or scrolls onto your action bars again. Built for **WoW Classic Era / Hardcore (1.15.x)**.
 
 When a stack runs out, you level up, or you loot something better, the macros rewrite themselves. You place each button once and forget it.
