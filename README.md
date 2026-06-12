@@ -9,8 +9,9 @@ When a stack runs out, you level up, or you loot something better, the macros re
 ## Features
 
 - **Food & water** — picks the best item for your level (conjured first, optional), drains partial stacks, and can eat + drink on a single click.
-- **Healing & mana potions** — combat-safe macros that list your top 3 tiers, so if your best potion runs out mid-fight the next one fires (they share the cooldown, so only one is used).
+- **Healing & mana potions** — combat-safe macros that list your top 3 tiers, so if your best potion runs out mid-fight the next one fires (they share the cooldown, so only one is used). Choose **strongest-first** or **weakest-first** (drain the small ones, save the big).
 - **Scroll buffs** — cycles through your Scrolls of Stamina / Strength / Agility / Intellect / Spirit / Protection, showing the next buff you're missing and going blank once you're fully buffed. Always self-targeted, so you never buff a passerby.
+- **Exclude list** — a checklist of the potions and scrolls in your bags; uncheck any and the macros will never touch it (remembered by item).
 - **Buff-food filter** — ignores Well Fed / stat food by default so you save it for raids.
 - **Self-updating** — reacts to bag changes, level-ups, and buff changes; updates are deferred during combat (you're not eating mid-fight anyway).
 
@@ -41,7 +42,7 @@ AutoFeed manages up to five per-character macros. Drag whichever you want from *
 
 ## Settings (`/autofeed`)
 
-Toggle each macro on/off, prioritize conjured items, filter buff food, combine eat+drink into one button, and enable/disable the scroll cycler.
+Toggle each macro on/off, prioritize conjured items, filter buff food, combine eat+drink into one button, choose potion order (strongest/weakest first), exclude specific potions and scrolls, and enable/disable the scroll cycler.
 
 ## Notes
 
