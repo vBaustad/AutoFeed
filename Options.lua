@@ -122,18 +122,92 @@ function AF:BuildOptions()
         "includeManaPot", 16, -256,
         "Same as healing potions, for mana. No effect on rage/energy classes.")
 
+    MakeCheck(panel, "Use weakest potions first (save the strong ones)",
+        "potionWeakestFirst", 36, -282,
+        "Orders the potion macros weakest-first so small potions get drained and your "
+        .. "strongest are saved for real emergencies. Unchecked = strongest first.")
+
     local buffHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    buffHeader:SetPoint("TOPLEFT", 16, -292)
+    buffHeader:SetPoint("TOPLEFT", 16, -318)
     buffHeader:SetText("Scroll buffs")
 
     MakeCheck(panel, "Manage the scroll-buff cycler ('" .. (AF.db and AF.db.scrollMacroName or "AutoScroll") .. "')",
-        "includeScrolls", 16, -312,
+        "includeScrolls", 16, -338,
         "Cycles through your Scrolls of Stamina/Strength/Agility/Intellect/Spirit/Protection, "
         .. "showing the next one whose buff you're missing. Goes blank once you're fully buffed.")
 
+    -- Exclude list (right column): potions and scrolls in bags, uncheck to skip.
+    local exLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    exLabel:SetPoint("TOPLEFT", 330, -206)
+    exLabel:SetText("Potions & scrolls in your bags:")
+
+    local exHint = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    exHint:SetPoint("TOPLEFT", 330, -224)
+    exHint:SetText("Uncheck an item and the macros will never use it.")
+
+    local exBox = CreateFrame("Frame", nil, panel, "BackdropTemplate")
+    exBox:SetPoint("TOPLEFT", 330, -242)
+    exBox:SetSize(260, 150)
+    exBox:SetBackdrop({
+        bgFile = "Interface\\ChatFrame\\ChatFrameBackground",
+        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+        tile = true, tileSize = 16, edgeSize = 14,
+        insets = { left = 4, right = 4, top = 4, bottom = 4 },
+    })
+    exBox:SetBackdropColor(0, 0, 0, 0.6)
+    exBox:SetBackdropBorderColor(0.4, 0.4, 0.4)
+
+    local exScroll = CreateFrame("ScrollFrame", "AutoFeedExcludeList", exBox, "UIPanelScrollFrameTemplate")
+    exScroll:SetPoint("TOPLEFT", 6, -6)
+    exScroll:SetPoint("BOTTOMRIGHT", -26, 6)
+    local exContent = CreateFrame("Frame", nil, exScroll)
+    exContent:SetSize(220, 1)
+    exScroll:SetScrollChild(exContent)
+
+    local KIND_TAG = {
+        heal = "|cffff6060heal|r", mana = "|cff6699ffmana|r", scroll = "|cffffd100scroll|r",
+    }
+    local exRows = {}
+    local function RenderExcludes()
+        if not (AF.db and AF.GetExcludables) then return end
+        local items = AF:GetExcludables()
+        for i, item in ipairs(items) do
+            local row = exRows[i]
+            if not row then
+                row = CreateFrame("Frame", nil, exContent)
+                row:SetSize(218, 20)
+                row.cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+                row.cb:SetSize(20, 20)
+                row.cb:SetPoint("LEFT", 0, 0)
+                row.text = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+                row.text:SetPoint("LEFT", row.cb, "RIGHT", 4, 0)
+                row.text:SetPoint("RIGHT", 0, 0)
+                row.text:SetJustifyH("LEFT")
+                exRows[i] = row
+            end
+            row.text:SetText(item.name .. "  " .. (KIND_TAG[item.kind] or ""))
+            row.cb:SetChecked(not AF.db.blacklist[item.id])
+            row.cb:SetScript("OnClick", function(self)
+                AF.db.blacklist[item.id] = (not self:GetChecked()) and true or nil
+                AF.lastBody = nil
+                if AF.ScheduleUpdate then AF:ScheduleUpdate() end
+            end)
+            row:SetPoint("TOPLEFT", 0, -(i - 1) * 22)
+            row:Show()
+        end
+        for j = #items + 1, #exRows do exRows[j]:Hide() end
+        exContent:SetHeight(math.max(1, #items * 22))
+        if #items == 0 then
+            exHint:SetText("|cff888888(no potions or scrolls in your bags right now)|r")
+        else
+            exHint:SetText("Uncheck an item and the macros will never use it.")
+        end
+    end
+    panel._renderExcludes = RenderExcludes
+
     local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btn:SetSize(140, 24)
-    btn:SetPoint("TOPLEFT", 16, -352)
+    btn:SetPoint("TOPLEFT", 16, -382)
     btn:SetText("Refresh macro now")
     btn:SetScript("OnClick", function()
         AF.lastBody = nil
@@ -149,6 +223,7 @@ function AF:BuildOptions()
         sub:SetText("Keeps two macros pointed at the best food/water in your bags: '"
             .. AF.db.macroName .. "' (food) and '" .. AF.db.drinkMacroName
             .. "' (water). Drag them from Esc > Macros onto your action bars once.")
+        if panel._renderExcludes then panel._renderExcludes() end
     end
     panel:SetScript("OnShow", Refresh)
     Refresh()

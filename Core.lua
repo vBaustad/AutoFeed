@@ -17,6 +17,7 @@ local defaults = {
     oneButton          = false,  -- if true, the food macro also drinks (one click does both)
     includeHealPot     = true,   -- manage the healing-potion macro
     includeManaPot     = true,   -- manage the mana-potion macro (only matters for mana classes)
+    potionWeakestFirst = false,  -- false = strongest potion first; true = drain weak ones, save the big
     includeScrolls     = true,   -- manage the scroll-buff cycler macro
     macroName          = "AutoFeed",
     drinkMacroName     = "AutoDrink",
@@ -95,12 +96,12 @@ end
 -- Bounded by distinct items seen in bags - tiny.
 local classifyCache = {}
 
-local function Classify(bag, slot)
+local function Classify(bag, slot, ignoreBlacklist)
     local info = C_Container.GetContainerItemInfo(bag, slot)
     if not info or not info.itemID then return nil end
 
     local itemID = info.itemID
-    if AF.db.blacklist[itemID] then return nil end
+    if not ignoreBlacklist and AF.db.blacklist[itemID] then return nil end
 
     local cached = classifyCache[itemID]
     if cached == false then return nil end
@@ -254,14 +255,19 @@ local function Pick(list, key)
     return sorted[1]
 end
 
--- Returns up to n distinct items, strongest first (for combat-potion fallback
--- lists). Ignores conjured priority — potions are ranked purely by strength.
+-- Returns up to n distinct items for the combat-potion fallback lists, ranked
+-- purely by strength. Strongest first by default; weakest first if the user
+-- prefers to drain small potions and save the big ones.
 local function PickTop(list, key, n)
     if not list or #list == 0 then return {} end
     local sorted = {}
     for i = 1, #list do sorted[i] = list[i] end
+    local weakFirst = AF.db.potionWeakestFirst
     table.sort(sorted, function(a, b)
-        if a[key] ~= b[key] then return a[key] > b[key] end
+        if a[key] ~= b[key] then
+            if weakFirst then return a[key] < b[key] end
+            return a[key] > b[key]
+        end
         return a.count < b.count
     end)
     local out, seen = {}, {}
@@ -306,7 +312,7 @@ local function ScanScrolls()
     for bag = 0, 4 do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
-            if info and info.itemID then
+            if info and info.itemID and not AF.db.blacklist[info.itemID] then
                 local name = GetItemInfo(info.itemID)
                 local stat = name and name:match("^Scroll of (%a+)")
                 if stat and STAT_SET[stat] then
@@ -319,6 +325,36 @@ local function ScanScrolls()
         end
     end
     return found
+end
+
+-- Potions and scrolls currently in bags, for the settings exclude list.
+-- Ignores the blacklist so excluded items remain visible (and re-includable).
+function AF:GetExcludables()
+    local out, seen = {}, {}
+    for bag = 0, 4 do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            local id = info and info.itemID
+            if id and not seen[id] then
+                seen[id] = true
+                local name = GetItemInfo(id)
+                if name then
+                    local stat = name:match("^Scroll of (%a+)")
+                    if stat and STAT_SET[stat] then
+                        out[#out + 1] = { id = id, name = name, kind = "scroll" }
+                    else
+                        local c = Classify(bag, slot, true)
+                        if c and c.kind == "potion" then
+                            out[#out + 1] = { id = id, name = name,
+                                kind = (c.health > 0) and "heal" or "mana" }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    table.sort(out, function(a, b) return a.name < b.name end)
+    return out
 end
 
 -- The next scroll whose buff you're missing (in stat order); nil if fully buffed.
