@@ -8,8 +8,7 @@
 ## X-Category: Inventory
 ## X-Website: https://github.com/vBaustad/AutoFeed
 ## X-License: MIT
-# After creating the CurseForge project, set the ID below and change the '#' to '##':
-# X-Curse-Project-ID: 000000
+## X-Curse-Project-ID: 1573300
 
 Core.lua
 Options.lua
