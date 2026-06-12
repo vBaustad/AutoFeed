@@ -3,6 +3,55 @@ local ADDON, AF = ...
 
 local checks = {}
 
+-- "Buy me a coffee" support link. WoW can't open a browser, so clicking pops
+-- a dialog with the URL pre-selected for copying.
+local BMC_URL = "buymeacoffee.com/vbaustad"
+StaticPopupDialogs["AUTOFEED_BMC"] = {
+    text = "Thanks for using AutoFeed!\nCopy the link below if you'd like to buy me a coffee.",
+    button1 = CLOSE,
+    hasEditBox = true,
+    editBoxWidth = 260,
+    OnShow = function(self)
+        local eb = self.EditBox or self.editBox  -- field name differs across client builds
+        if not eb then return end
+        eb:SetText(BMC_URL)
+        eb:HighlightText()
+        eb:SetFocus()
+    end,
+    EditBoxOnEnterPressed = function(self) self:GetParent():Hide() end,
+    EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+    timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
+local function AddCoffeeButton(panel)
+    local btn = CreateFrame("Button", nil, panel)
+    btn:SetSize(26, 26)
+    btn:SetPoint("BOTTOMLEFT", 16, 14)
+    local tex = btn:CreateTexture(nil, "ARTWORK")
+    tex:SetAllPoints()
+    tex:SetTexture("Interface\\AddOns\\AutoFeed\\bmc-logo")
+    tex:SetAlpha(0.65)
+    local label = panel:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    label:SetPoint("LEFT", btn, "RIGHT", 6, 0)
+    label:SetText("|cff888888if you want to support|r")
+    btn:SetScript("OnEnter", function(self)
+        tex:SetAlpha(1)
+        label:SetText("|cffffc840if you want to support|r")
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+        GameTooltip:AddLine("Buy me a coffee", 1, 0.85, 0.2)
+        GameTooltip:AddLine(BMC_URL, 0.7, 0.7, 0.7)
+        GameTooltip:AddLine(" ")
+        GameTooltip:AddLine("Click to copy the link.", 0.5, 0.5, 0.5)
+        GameTooltip:Show()
+    end)
+    btn:SetScript("OnLeave", function()
+        tex:SetAlpha(0.65)
+        label:SetText("|cff888888if you want to support|r")
+        GameTooltip:Hide()
+    end)
+    btn:SetScript("OnClick", function() StaticPopup_Show("AUTOFEED_BMC") end)
+end
+
 local function MakeCheck(parent, label, key, x, y, tooltip)
     local cb = CreateFrame("CheckButton", "AutoFeedCheck_" .. key, parent,
         "InterfaceOptionsCheckButtonTemplate")
@@ -103,6 +152,8 @@ function AF:BuildOptions()
     end
     panel:SetScript("OnShow", Refresh)
     Refresh()
+
+    AddCoffeeButton(panel)
 
     -- Register with the Settings API (Classic 1.15) or legacy InterfaceOptions.
     if Settings and Settings.RegisterCanvasLayoutCategory then
