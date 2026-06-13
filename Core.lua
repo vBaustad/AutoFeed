@@ -2,7 +2,7 @@
 -- Classic Era 1.15.x. Shares the private table `AF` across files via the addon vararg.
 local ADDON, AF = ...
 
-AF.version = "1.0.0"
+AF.version = "1.1.0"
 
 -- The dynamic "?" macro icon. With #showtooltip this auto-shows the item's icon.
 local DYNAMIC_ICON = 134400
@@ -25,6 +25,7 @@ local defaults = {
     manaMacroName      = "AutoManaPot",
     scrollMacroName    = "AutoScroll",
     blacklist          = {},     -- [itemID] = true, never use these
+    welcomed           = false,  -- first-login welcome window shown yet?
 }
 
 local function ApplyDefaults()
@@ -128,17 +129,20 @@ local function Classify(bag, slot, ignoreBlacklist)
     local itemName = GetItemInfo(itemID)
     local loaded = itemName ~= nil
     if not itemName then
-        -- not cached yet; ask for it and skip this pass
+        -- Not cached yet: ask for it, flag the scan incomplete (so UpdateMacro
+        -- retries once data arrives), and skip caching this pass.
         if C_Item and C_Item.RequestLoadItemDataByID then
             C_Item.RequestLoadItemDataByID(itemID)
         end
+        AF.scanPending = true
         itemName = (info.hyperlink and info.hyperlink:match("%[(.-)%]")) or ("item:" .. itemID)
     end
     local lname = itemName:lower()
 
     local lines = GetTooltipLines(bag, slot)
-    -- Only cache verdicts based on fully-loaded data, so slow-loading items
-    -- get re-examined next scan instead of being misclassified forever.
+    -- Only ever cache POSITIVE verdicts, and only from fully-loaded data. A
+    -- not-yet-loaded item can momentarily look like "nothing"; caching that
+    -- negative would wrongly hide a real food/potion until /reload.
     local cacheable = loaded and #lines > 0
 
     local health, mana, reqLevel, buff, overTime = 0, 0, 0, false, false
@@ -154,7 +158,10 @@ local function Classify(bag, slot, ignoreBlacklist)
     end
 
     if health == 0 and mana == 0 then
-        if cacheable then classifyCache[itemID] = false end
+        -- A Potion (subclass 1) or Food & Drink (subclass 5) with no restore line
+        -- almost certainly hasn't finished loading its use effect - retry rather
+        -- than write it off (and never cache the negative).
+        if subClassID == 1 or subClassID == 5 then AF.scanPending = true end
         return nil
     end
 
@@ -204,6 +211,7 @@ end
 -- Scan all bags -> filtered + unfiltered candidate lists
 -- ---------------------------------------------------------------------------
 local function ScanBags()
+    AF.scanPending = false   -- Classify() sets this true if any item wasn't loaded yet
     local level = UnitLevel("player")
     local foods, foodsAll, drinks, drinksAll = {}, {}, {}, {}
     local healPots, manaPots = {}, {}
@@ -295,6 +303,7 @@ local function ParseRank(name)
 end
 
 local function HasBuff(buffName)
+    if not buffName then return false end
     if AuraUtil and AuraUtil.FindAuraByName then
         return AuraUtil.FindAuraByName(buffName, "player", "HELPFUL") ~= nil
     end
@@ -318,7 +327,12 @@ local function ScanScrolls()
                 if stat and STAT_SET[stat] then
                     local rank = ParseRank(name)
                     if not found[stat] or rank > found[stat].rank then
-                        found[stat] = { id = info.itemID, rank = rank, name = name, stat = stat }
+                        -- The aura a scroll grants isn't always named after the stat
+                        -- (Scroll of Protection -> "Armor"), so capture the actual
+                        -- on-use buff name and check that.
+                        local buffName = GetItemSpell(info.itemID)
+                        found[stat] = { id = info.itemID, rank = rank, name = name,
+                            stat = stat, buffName = buffName }
                     end
                 end
             end
@@ -362,7 +376,9 @@ local function PickScroll()
     local found = ScanScrolls()
     for _, stat in ipairs(SCROLL_STATS) do
         local s = found[stat]
-        if s and not HasBuff(stat) then return s end
+        -- Buffed if the scroll's real buff is up (or, as a fallback, an aura named
+        -- after the stat). Either match means "don't suggest it again".
+        if s and not (HasBuff(s.buffName) or HasBuff(stat)) then return s end
     end
     return nil
 end
@@ -370,25 +386,59 @@ end
 -- ---------------------------------------------------------------------------
 -- Macro writing
 -- ---------------------------------------------------------------------------
--- Writes one macro by name, skipping the call if the body is unchanged.
+-- Updates an EXISTING macro's body (skips the call if unchanged). It never
+-- creates a macro - macros cost a per-character slot, so the player makes the
+-- ones they want from the welcome window or settings. Missing macros are skipped.
 function AF:WriteMacro(name, body)
     self.lastBody = self.lastBody or {}
     local idx = GetMacroIndexByName(name)
-    -- Skip only if unchanged AND the macro still exists (the user may have
-    -- deleted it manually; recreate it in that case).
-    if self.lastBody[name] == body and idx and idx > 0 then return end
-    self.lastBody[name] = body
-
-    if idx and idx > 0 then
-        pcall(EditMacro, idx, name, DYNAMIC_ICON, body)
-    else
-        local ok = pcall(CreateMacro, name, DYNAMIC_ICON, body, true) -- true = per-character
-        if not ok then
-            self.lastBody[name] = nil
-            print("|cff66ccffAutoFeed|r: couldn't create macro '" .. name
-                .. "' (per-character macro slots full?). Free a slot, then type /autofeed update.")
-        end
+    if not (idx and idx > 0) then
+        self.lastBody[name] = nil   -- doesn't exist; nothing to keep in sync
+        return
     end
+    if self.lastBody[name] == body then return end
+    self.lastBody[name] = body
+    pcall(EditMacro, idx, name, DYNAMIC_ICON, body)
+end
+
+-- The macros AutoFeed manages, in display order. need="mana" entries only matter
+-- for mana users; toggle = the "manage this" setting to switch on when created.
+AF.MACROS = {
+    { key = "food",   slot = "macroName",       short = "Food",     need = "always" },
+    { key = "drink",  slot = "drinkMacroName",  short = "Water",    need = "mana",   toggle = "includeDrink" },
+    { key = "heal",   slot = "healMacroName",   short = "Heal pot", need = "always", toggle = "includeHealPot" },
+    { key = "mana",   slot = "manaMacroName",   short = "Mana pot", need = "mana",   toggle = "includeManaPot" },
+    { key = "scroll", slot = "scrollMacroName", short = "Scroll",   need = "always", toggle = "includeScrolls" },
+}
+
+-- Create one managed macro on demand (per-character). Enables its "manage" toggle
+-- so UpdateMacro keeps it current, then fills the body immediately. Returns false
+-- (with a chat note) if the character's macro slots are full.
+function AF:CreateMacroByKey(key)
+    if not self.db then return false end
+    local def
+    for _, m in ipairs(AF.MACROS) do if m.key == key then def = m; break end end
+    if not def then return false end
+
+    local name = self.db[def.slot]
+    if def.toggle then self.db[def.toggle] = true end
+
+    local idx = GetMacroIndexByName(name)
+    if not (idx and idx > 0) then
+        local ok = pcall(CreateMacro, name, DYNAMIC_ICON, "#showtooltip", true) -- per-character
+        if not ok then
+            print("|cff66ccffAutoFeed|r: couldn't create '" .. name
+                .. "' - your character macro slots are full. Free one (Esc > Macros) and try again.")
+            return false
+        end
+        print("|cff66ccffAutoFeed|r: created '" .. name
+            .. "'. Drag it from Esc > Macros onto your action bars.")
+    end
+
+    self.lastBody = self.lastBody or {}
+    self.lastBody[name] = nil   -- force a fresh body on the next write
+    self:UpdateMacro()
+    return true
 end
 
 function AF:UpdateMacro()
@@ -400,12 +450,15 @@ function AF:UpdateMacro()
     self.pending = nil
 
     local foods, foodsAll, drinks, drinksAll, healPots, manaPots = ScanBags()
-    local food = Pick(#foods > 0 and foods or foodsAll, "health")
+    -- Use the FILTERED lists: when "filter buff food" is on, Well Fed / stat food is
+    -- intentionally never auto-suggested (saved for raids) - even if it's all you
+    -- have. foodsAll/drinksAll are only used to word the "nothing usable" message.
+    local food = Pick(foods, "health")
 
     local drink
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
     if self.db.includeDrink and hasMana then
-        drink = Pick(#drinks > 0 and drinks or drinksAll, "mana")
+        drink = Pick(drinks, "mana")
     end
 
     -- Food macro: food, plus the drink line too when one-button mode is on.
@@ -417,7 +470,9 @@ function AF:UpdateMacro()
         foodBody[#foodBody + 1] = "/use item:" .. drink.id
     end
     if #foodBody == 1 then
-        foodBody[#foodBody + 1] = '/run print("|cff66ccffAutoFeed|r: no usable food in bags")'
+        local msg = (#foodsAll > 0) and "only buff food in bags - saved for raids (/autofeed to change)"
+            or "no usable food in bags"
+        foodBody[#foodBody + 1] = '/run print("|cff66ccffAutoFeed|r: ' .. msg .. '")'
     end
     self:WriteMacro(self.db.macroName, table.concat(foodBody, "\n"))
 
@@ -427,7 +482,9 @@ function AF:UpdateMacro()
         if drink then
             drinkBody[#drinkBody + 1] = "/use item:" .. drink.id
         else
-            drinkBody[#drinkBody + 1] = '/run print("|cff66ccffAutoFeed|r: no usable water in bags")'
+            local msg = (#drinksAll > 0) and "only buff drink in bags - saved for raids (/autofeed to change)"
+                or "no usable water in bags"
+            drinkBody[#drinkBody + 1] = '/run print("|cff66ccffAutoFeed|r: ' .. msg .. '")'
         end
         self:WriteMacro(self.db.drinkMacroName, table.concat(drinkBody, "\n"))
     end
@@ -474,10 +531,21 @@ function AF:UpdateMacro()
     end
 
     self.lastFood, self.lastDrink = food, drink
+
+    -- Right after login (and sometimes after big bag changes) item data isn't
+    -- cached yet, so the scan can miss food/potions that really are in the bags.
+    -- When ScanBags flagged that, retry shortly - bounded - until it settles.
+    if self.scanPending and (self.loadRetries or 0) < 8 then
+        self.loadRetries = (self.loadRetries or 0) + 1
+        C_Timer.After(1.5, function() AF:UpdateMacro() end)
+    elseif not self.scanPending then
+        self.loadRetries = 0
+    end
 end
 
 -- Debounced update (bag events can fire in bursts)
 function AF:ScheduleUpdate()
+    self.loadRetries = 0   -- a fresh event gets a fresh retry budget
     if self.timer then return end
     self.timer = C_Timer.NewTimer(0.4, function()
         AF.timer = nil
@@ -494,6 +562,8 @@ SlashCmdList.AUTOFEED = function(msg)
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if msg == "update" or msg == "refresh" then
         AF.lastBody = nil
+        wipe(classifyCache)   -- drop any stale verdicts so everything is re-read
+        AF.loadRetries = 0
         AF:UpdateMacro()
         print("|cff66ccffAutoFeed|r: macro refreshed.")
     elseif msg == "status" then
@@ -529,6 +599,8 @@ SlashCmdList.AUTOFEED = function(msg)
             end
         end
         if found == 0 then print("  (no Consumable-class items found in bags)") end
+    elseif msg == "welcome" or msg == "macros" then
+        if AF.ShowWelcome then AF:ShowWelcome() end
     else
         AF:OpenOptions()
     end
@@ -549,8 +621,11 @@ f:SetScript("OnEvent", function(_, event)
         if AF.BuildOptions then AF:BuildOptions() end
         C_Timer.After(2, function() AF:UpdateMacro() end) -- let item data cache first
         print("|cff66ccffAutoFeed|r v" .. AF.version
-            .. " loaded. Type /autofeed for options. Macros: '" .. AF.db.macroName
-            .. "' (food) and '" .. AF.db.drinkMacroName .. "' (water).")
+            .. " loaded. Type /autofeed to create macros and change options.")
+        if not AF.db.welcomed then
+            AF.db.welcomed = true
+            C_Timer.After(3, function() if AF.ShowWelcome then AF:ShowWelcome() end end)
+        end
     elseif event == "PLAYER_REGEN_ENABLED" then
         if AF.pending then AF:UpdateMacro() end
     elseif event == "UNIT_AURA" then

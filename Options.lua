@@ -2,6 +2,7 @@
 local ADDON, AF = ...
 
 local checks = {}
+local macroBtns = {}
 
 -- "Buy me a coffee" support link. WoW can't open a browser, so clicking pops
 -- a dialog with the URL pre-selected for copying.
@@ -205,9 +206,50 @@ function AF:BuildOptions()
     end
     panel._renderExcludes = RenderExcludes
 
+    -- Create-macro buttons. Macros aren't auto-created (each costs a per-character
+    -- macro slot), so the player makes the ones they want here or in the welcome.
+    local macroHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    macroHeader:SetPoint("TOPLEFT", 16, -366)
+    macroHeader:SetText("Create macros")
+    local macroHint = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
+    macroHint:SetPoint("TOPLEFT", 16, -384)
+    macroHint:SetText("Each costs one character macro slot.")
+
+    local hasMana = (UnitPowerMax("player", 0) or 0) > 0
+    local mx = 16
+    for _, def in ipairs(AF.MACROS) do
+        if not (def.need == "mana" and not hasMana) then
+            local mb = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+            mb:SetSize(110, 22)
+            mb:SetPoint("TOPLEFT", mx, -404)
+            mb._def = def
+            mb:SetScript("OnClick", function()
+                AF:CreateMacroByKey(def.key)
+                if panel._refreshMacroBtns then panel._refreshMacroBtns() end
+            end)
+            macroBtns[#macroBtns + 1] = mb
+            mx = mx + 114
+        end
+    end
+
+    local function RefreshMacroBtns()
+        for _, mb in ipairs(macroBtns) do
+            local name = AF.db and AF.db[mb._def.slot]
+            local idx = name and GetMacroIndexByName(name)
+            if idx and idx > 0 then
+                mb:SetText(mb._def.short .. " (made)")
+                mb:Disable()
+            else
+                mb:SetText("Make " .. mb._def.short)
+                mb:Enable()
+            end
+        end
+    end
+    panel._refreshMacroBtns = RefreshMacroBtns
+
     local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     btn:SetSize(140, 24)
-    btn:SetPoint("TOPLEFT", 16, -382)
+    btn:SetPoint("TOPLEFT", 16, -436)
     btn:SetText("Refresh macro now")
     btn:SetScript("OnClick", function()
         AF.lastBody = nil
@@ -224,6 +266,7 @@ function AF:BuildOptions()
             .. AF.db.macroName .. "' (food) and '" .. AF.db.drinkMacroName
             .. "' (water). Drag them from Esc > Macros onto your action bars once.")
         if panel._renderExcludes then panel._renderExcludes() end
+        if panel._refreshMacroBtns then panel._refreshMacroBtns() end
     end
     panel:SetScript("OnShow", Refresh)
     Refresh()

@@ -17,7 +17,7 @@ When a stack runs out, you level up, or you loot something better, the macros re
 
 ## The macros
 
-AutoFeed manages up to five per-character macros. Drag whichever you want from **Esc → Macros** onto your action bars (one time):
+AutoFeed can manage up to five per-character macros. They are **not** created automatically — each one costs a character macro slot, so you create only the ones you want: a welcome window pops on first login (reopen with `/autofeed welcome`), and **Settings** has the same **Create** buttons. Once created, drag them from **Esc → Macros** onto your action bars (one time):
 
 | Macro | Does |
 |---|---|
@@ -31,11 +31,12 @@ AutoFeed manages up to five per-character macros. Drag whichever you want from *
 
 1. Download and unzip into `World of Warcraft/_classic_era_/Interface/AddOns/`.
 2. Make sure the folder is named `AutoFeed` and contains the `.toc`.
-3. `/reload` or restart the game, then drag the macros you want onto your bars.
+3. `/reload` or restart the game. A welcome window lets you create the macros you want (or use `/autofeed`), then drag them from Esc → Macros onto your bars.
 
 ## Slash commands
 
 - `/autofeed` (or `/af`) — open settings
+- `/autofeed welcome` — reopen the welcome window (create macros)
 - `/autofeed status` — show what each macro currently points at
 - `/autofeed update` — force a refresh
 - `/autofeed debug` — list the consumables AutoFeed sees in your bags
