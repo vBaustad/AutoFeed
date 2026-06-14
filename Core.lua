@@ -19,13 +19,17 @@ local defaults = {
     includeManaPot     = true,   -- manage the mana-potion macro (only matters for mana classes)
     potionWeakestFirst = false,  -- false = strongest potion first; true = drain weak ones, save the big
     includeScrolls     = true,   -- manage the scroll-buff cycler macro
+    includeBandage     = true,   -- manage the bandage macro
     macroName          = "AutoFeed",
     drinkMacroName     = "AutoDrink",
     healMacroName      = "AutoHealPot",
     manaMacroName      = "AutoManaPot",
     scrollMacroName    = "AutoScroll",
+    bandageMacroName   = "AutoBandage",
     blacklist          = {},     -- [itemID] = true, never use these
     welcomed           = false,  -- first-login welcome window shown yet?
+    minimapButton      = true,   -- show a minimap button
+    minimapAngle       = 200,    -- minimap button position around the ring (degrees)
 }
 
 local function ApplyDefaults()
@@ -157,6 +161,26 @@ local function Classify(bag, slot, ignoreBlacklist)
         if t:find("well fed") then buff = true end
     end
 
+    -- Bandages say "Heals X damage over N sec" (not "Restores") and are named
+    -- "... Bandage". Detect them before the food/potion logic.
+    if lname:find("bandage") then
+        local heal = 0
+        for _, raw in ipairs(lines) do
+            local n = raw:lower():match("heals%s+([%d,]+)")
+            if n then heal = num(n); break end
+        end
+        if heal > 0 then
+            local rec = { name = itemName, reqLevel = reqLevel, buff = false,
+                conjured = false, health = heal, mana = 0, kind = "bandage" }
+            if cacheable then classifyCache[itemID] = rec end
+            return {
+                id = itemID, name = itemName, count = info.stackCount or 1,
+                reqLevel = reqLevel, buff = false, conjured = false,
+                health = heal, mana = 0, kind = "bandage",
+            }
+        end
+    end
+
     if health == 0 and mana == 0 then
         -- A Potion (subclass 1) or Food & Drink (subclass 5) with no restore line
         -- almost certainly hasn't finished loading its use effect - retry rather
@@ -214,7 +238,7 @@ local function ScanBags()
     AF.scanPending = false   -- Classify() sets this true if any item wasn't loaded yet
     local level = UnitLevel("player")
     local foods, foodsAll, drinks, drinksAll = {}, {}, {}, {}
-    local healPots, manaPots = {}, {}
+    local healPots, manaPots, bandages = {}, {}, {}
 
     for bag = 0, 4 do
         local slots = C_Container.GetContainerNumSlots(bag)
@@ -237,12 +261,14 @@ local function ScanBags()
                 elseif c.kind == "potion" then
                     if c.health > 0 then healPots[#healPots + 1] = c end
                     if c.mana > 0 then manaPots[#manaPots + 1] = c end
+                elseif c.kind == "bandage" then
+                    bandages[#bandages + 1] = c
                 end
             end
         end
     end
 
-    return foods, foodsAll, drinks, drinksAll, healPots, manaPots
+    return foods, foodsAll, drinks, drinksAll, healPots, manaPots, bandages
 end
 
 -- Pick the best candidate: conjured-first (optional), then strongest restore,
@@ -409,7 +435,16 @@ AF.MACROS = {
     { key = "heal",   slot = "healMacroName",   short = "Heal pot", need = "always", toggle = "includeHealPot" },
     { key = "mana",   slot = "manaMacroName",   short = "Mana pot", need = "mana",   toggle = "includeManaPot" },
     { key = "scroll", slot = "scrollMacroName", short = "Scroll",   need = "always", toggle = "includeScrolls" },
+    { key = "bandage", slot = "bandageMacroName", short = "Bandage", need = "always", toggle = "includeBandage" },
 }
+
+-- Create every macro that applies to this class, in one go (for a "Create all" button).
+function AF:CreateAllMacros()
+    local hasMana = (UnitPowerMax("player", 0) or 0) > 0
+    for _, m in ipairs(AF.MACROS) do
+        if not (m.need == "mana" and not hasMana) then AF:CreateMacroByKey(m.key) end
+    end
+end
 
 -- Create one managed macro on demand (per-character). Enables its "manage" toggle
 -- so UpdateMacro keeps it current, then fills the body immediately. Returns false
@@ -449,7 +484,7 @@ function AF:UpdateMacro()
     end
     self.pending = nil
 
-    local foods, foodsAll, drinks, drinksAll, healPots, manaPots = ScanBags()
+    local foods, foodsAll, drinks, drinksAll, healPots, manaPots, bandages = ScanBags()
     -- Use the FILTERED lists: when "filter buff food" is on, Well Fed / stat food is
     -- intentionally never auto-suggested (saved for raids) - even if it's all you
     -- have. foodsAll/drinksAll are only used to word the "nothing usable" message.
@@ -530,6 +565,20 @@ function AF:UpdateMacro()
         self.lastScroll = scroll
     end
 
+    -- Bandage macro: best bandage, with the next tier as a fallback.
+    if self.db.includeBandage then
+        local top = PickTop(bandages, "health", 2)
+        local body = { "#showtooltip" }
+        for _, b in ipairs(top) do
+            body[#body + 1] = "/use item:" .. b.id
+        end
+        if #body == 1 then
+            body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no bandage in bags")'
+        end
+        self:WriteMacro(self.db.bandageMacroName, table.concat(body, "\n"))
+        self.lastBandage = top[1]
+    end
+
     self.lastFood, self.lastDrink = food, drink
 
     -- Right after login (and sometimes after big bag changes) item data isn't
@@ -572,7 +621,8 @@ SlashCmdList.AUTOFEED = function(msg)
         print("|cff66ccffAutoFeed|r heal pot: " .. lbl(AF.lastHealPot)
             .. "  |  mana pot: " .. lbl(AF.lastManaPot))
         print("|cff66ccffAutoFeed|r next scroll: "
-            .. (AF.lastScroll and AF.lastScroll.name or "none (fully buffed or no scrolls)"))
+            .. (AF.lastScroll and AF.lastScroll.name or "none (fully buffed or no scrolls)")
+            .. "  |  bandage: " .. (AF.lastBandage and AF.lastBandage.name or "none"))
         print("|cff66ccffAutoFeed|r: drag macros '" .. AF.db.macroName .. "' (food), '"
             .. AF.db.drinkMacroName .. "' (water), '" .. AF.db.healMacroName .. "' (heal pot), '"
             .. AF.db.manaMacroName .. "' (mana pot), '" .. AF.db.scrollMacroName
@@ -619,6 +669,7 @@ f:SetScript("OnEvent", function(_, event)
     if event == "PLAYER_LOGIN" then
         ApplyDefaults()
         if AF.BuildOptions then AF:BuildOptions() end
+        if AF.ApplyMinimapButton then AF:ApplyMinimapButton() end
         C_Timer.After(2, function() AF:UpdateMacro() end) -- let item data cache first
         print("|cff66ccffAutoFeed|r v" .. AF.version
             .. " loaded. Type /autofeed to create macros and change options.")

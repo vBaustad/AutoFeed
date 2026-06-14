@@ -64,8 +64,12 @@ local function MakeCheck(parent, label, key, x, y, tooltip)
     cb:SetScript("OnClick", function(self)
         if not AF.db then return end
         AF.db[key] = self:GetChecked() and true or false
-        AF.lastBody = nil
-        if AF.ScheduleUpdate then AF:ScheduleUpdate() end
+        if key == "minimapButton" then
+            if AF.ApplyMinimapButton then AF:ApplyMinimapButton() end
+        else
+            AF.lastBody = nil
+            if AF.ScheduleUpdate then AF:ScheduleUpdate() end
+        end
     end)
     cb._afkey = key
     checks[#checks + 1] = cb
@@ -136,6 +140,15 @@ function AF:BuildOptions()
         "includeScrolls", 16, -338,
         "Cycles through your Scrolls of Stamina/Strength/Agility/Intellect/Spirit/Protection, "
         .. "showing the next one whose buff you're missing. Goes blank once you're fully buffed.")
+
+    -- Right-column extras: bandage macro + minimap button.
+    MakeCheck(panel, "Manage the bandage macro ('" .. (AF.db and AF.db.bandageMacroName or "AutoBandage") .. "')",
+        "includeBandage", 330, -84,
+        "Keeps a bandage macro pointed at your best bandage (with the next tier as a fallback). "
+        .. "Bandages heal out of combat - great for hardcore.")
+    MakeCheck(panel, "Show a minimap button",
+        "minimapButton", 330, -114,
+        "A button on the minimap: left-click for settings, right-click to create macros, drag to move.")
 
     -- Exclude list (right column): potions and scrolls in bags, uncheck to skip.
     local exLabel = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
@@ -216,21 +229,32 @@ function AF:BuildOptions()
     macroHint:SetText("Each costs one character macro slot.")
 
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
-    local mx = 16
+    local defs = {}
     for _, def in ipairs(AF.MACROS) do
-        if not (def.need == "mana" and not hasMana) then
-            local mb = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-            mb:SetSize(110, 22)
-            mb:SetPoint("TOPLEFT", mx, -404)
-            mb._def = def
-            mb:SetScript("OnClick", function()
-                AF:CreateMacroByKey(def.key)
-                if panel._refreshMacroBtns then panel._refreshMacroBtns() end
-            end)
-            macroBtns[#macroBtns + 1] = mb
-            mx = mx + 114
-        end
+        if not (def.need == "mana" and not hasMana) then defs[#defs + 1] = def end
     end
+    for i, def in ipairs(defs) do
+        local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
+        local mb = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+        mb:SetSize(108, 22)
+        mb:SetPoint("TOPLEFT", 16 + col * 112, -404 - row * 26)
+        mb._def = def
+        mb:SetScript("OnClick", function()
+            AF:CreateMacroByKey(def.key)
+            if panel._refreshMacroBtns then panel._refreshMacroBtns() end
+        end)
+        macroBtns[#macroBtns + 1] = mb
+    end
+    local afterGrid = -404 - math.ceil(#defs / 4) * 26
+
+    local allBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
+    allBtn:SetSize(108, 22)
+    allBtn:SetPoint("TOPLEFT", 16, afterGrid)
+    allBtn:SetText("Create all")
+    allBtn:SetScript("OnClick", function()
+        AF:CreateAllMacros()
+        if panel._refreshMacroBtns then panel._refreshMacroBtns() end
+    end)
 
     local function RefreshMacroBtns()
         for _, mb in ipairs(macroBtns) do
@@ -248,8 +272,8 @@ function AF:BuildOptions()
     panel._refreshMacroBtns = RefreshMacroBtns
 
     local btn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
-    btn:SetSize(140, 24)
-    btn:SetPoint("TOPLEFT", 16, -436)
+    btn:SetSize(140, 22)
+    btn:SetPoint("TOPLEFT", 132, afterGrid)
     btn:SetText("Refresh macro now")
     btn:SetScript("OnClick", function()
         AF.lastBody = nil

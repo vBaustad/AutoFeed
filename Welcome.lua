@@ -66,6 +66,7 @@ function AF:ShowWelcome()
         heal   = "Best healing potion (combat-safe)",
         mana   = "Best mana potion (combat-safe)",
         scroll = "Next scroll buff you're missing",
+        bandage = "Use your best bandage",
     }
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
 
@@ -108,6 +109,15 @@ function AF:ShowWelcome()
     settingsBtn:SetScript("OnClick", function()
         w:Hide()
         if AF.OpenOptions then AF:OpenOptions() end
+    end)
+
+    local allBtn = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
+    allBtn:SetSize(90, 22)
+    allBtn:SetPoint("BOTTOM", 0, 14)
+    allBtn:SetText("Create all")
+    allBtn:SetScript("OnClick", function()
+        if AF.CreateAllMacros then AF:CreateAllMacros() end
+        if w.Refresh then w:Refresh() end
     end)
 
     local okBtn = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")

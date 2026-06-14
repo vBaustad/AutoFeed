@@ -1,6 +1,6 @@
 ## Interface: 11508
 ## Title: AutoFeed
-## Notes: One-button auto-updating macros for food, water, potions, and scroll buffs. Built for Classic Hardcore.
+## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Built for Classic Hardcore.
 ## Author: vebjorn
 ## Version: 1.1.0
 ## IconTexture: Interface\Icons\INV_Misc_Food_15
@@ -13,3 +13,4 @@
 Core.lua
 Options.lua
 Welcome.lua
+Minimap.lua
