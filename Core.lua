@@ -2,7 +2,7 @@
 -- Classic Era 1.15.x. Shares the private table `AF` across files via the addon vararg.
 local ADDON, AF = ...
 
-AF.version = "1.1.0"
+AF.version = "1.2.0"
 
 -- The dynamic "?" macro icon. With #showtooltip this auto-shows the item's icon.
 local DYNAMIC_ICON = 134400

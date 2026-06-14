@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.2.0
+
+### New
+- **AutoBandage** macro — points at your best bandage (with the next tier as a
+  fallback). Off-cooldown healing, a hardcore staple.
+- **Minimap button** — left-click for settings, right-click to create macros, drag
+  to move (toggle in Settings).
+- **"Create all"** button in the welcome window and Settings to make every macro
+  at once.
+
+### Fixes
+- Scroll buffs are now skipped when a non-stacking class buff for that stat is
+  already active (Arcane Intellect / Power Word: Fortitude / Divine Spirit and
+  their group variants), so AutoScroll no longer suggests a scroll that would just
+  fail with "a more powerful spell is already active."
+
 ## 1.1.0
 
 ### New

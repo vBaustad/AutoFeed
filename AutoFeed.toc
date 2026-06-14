@@ -2,7 +2,7 @@
 ## Title: AutoFeed
 ## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Built for Classic Hardcore.
 ## Author: vebjorn
-## Version: 1.1.0
+## Version: 1.2.0
 ## IconTexture: Interface\Icons\INV_Misc_Food_15
 ## SavedVariables: AutoFeedDB
 ## X-Category: Inventory
