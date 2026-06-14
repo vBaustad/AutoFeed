@@ -322,6 +322,15 @@ local SCROLL_STATS = { "Stamina", "Strength", "Agility", "Intellect", "Spirit", 
 local STAT_SET = {}
 for _, s in ipairs(SCROLL_STATS) do STAT_SET[s] = true end
 
+-- Class buffs that raise the SAME stat and so don't stack with the scroll - if
+-- one is up, using the scroll just fails ("a more powerful spell is already
+-- active"), so we don't suggest it. enUS buff names.
+local STAT_BUFFS = {
+    Stamina   = { "Power Word: Fortitude", "Prayer of Fortitude" },
+    Intellect = { "Arcane Intellect", "Arcane Brilliance" },
+    Spirit    = { "Divine Spirit", "Prayer of Spirit" },
+}
+
 local ROMAN = { I = 1, II = 2, III = 3, IV = 4, V = 5, VI = 6 }
 local function ParseRank(name)
     local r = name:match("%s([IVX]+)$")
@@ -397,14 +406,26 @@ function AF:GetExcludables()
     return out
 end
 
--- The next scroll whose buff you're missing (in stat order); nil if fully buffed.
+-- A stat is "covered" if the scroll's own buff is up, an aura named after the
+-- stat is up, or a non-stacking class buff for that stat is up (using the scroll
+-- then would only fail with "a more powerful spell is already active").
+local function StatCovered(s)
+    if HasBuff(s.buffName) or HasBuff(s.stat) then return true end
+    local conflicts = STAT_BUFFS[s.stat]
+    if conflicts then
+        for _, b in ipairs(conflicts) do
+            if HasBuff(b) then return true end
+        end
+    end
+    return false
+end
+
+-- The next scroll whose stat isn't already covered (in stat order); nil if done.
 local function PickScroll()
     local found = ScanScrolls()
     for _, stat in ipairs(SCROLL_STATS) do
         local s = found[stat]
-        -- Buffed if the scroll's real buff is up (or, as a fallback, an aura named
-        -- after the stat). Either match means "don't suggest it again".
-        if s and not (HasBuff(s.buffName) or HasBuff(stat)) then return s end
+        if s and not StatCovered(s) then return s end
     end
     return nil
 end
