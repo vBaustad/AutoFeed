@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1
+
+- Minimap button sits cleanly on the ring at the right size, with a hover glow, and scales
+  with the minimap instead of drifting off the edge when it's resized.
+
 ## 1.2.0
 
 ### New
