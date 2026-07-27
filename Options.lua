@@ -300,7 +300,10 @@ function AF:BuildOptions()
     -- Register with the Settings API (Classic 1.15) or legacy InterfaceOptions.
     if Settings and Settings.RegisterCanvasLayoutCategory then
         local category = Settings.RegisterCanvasLayoutCategory(panel, "AutoFeed")
-        category.ID = "AutoFeed"
+        -- Do NOT overwrite category.ID with our addon name. As of 1.15.9 / 2.5.6,
+        -- Settings.OpenToCategory forwards the ID straight to the C function
+        -- C_SettingsUtil.OpenSettingsPanel(), which only accepts a number - a
+        -- string ID throws "bad argument #1 ... outside of expected range".
         Settings.RegisterAddOnCategory(category)
         AF.category = category
     elseif InterfaceOptions_AddCategory then
@@ -310,8 +313,16 @@ end
 
 function AF:OpenOptions()
     if not AF.panel then return end
+    -- C_SettingsUtil.OpenSettingsPanel() (what Settings.OpenToCategory calls since
+    -- 1.15.9) is protected, so opening the panel from addon code during combat is
+    -- blocked. Bail out with a note instead of throwing ADDON_ACTION_BLOCKED.
+    if InCombatLockdown() then
+        print("|cff66ccffAutoFeed|r: settings can't be opened during combat.")
+        return
+    end
     if Settings and Settings.OpenToCategory and AF.category then
-        Settings.OpenToCategory(AF.category.ID)
+        local id = AF.category.GetID and AF.category:GetID() or AF.category.ID
+        Settings.OpenToCategory(id)
     elseif InterfaceOptionsFrame_OpenToCategory then
         InterfaceOptionsFrame_OpenToCategory(AF.panel)
         InterfaceOptionsFrame_OpenToCategory(AF.panel) -- twice: known Blizzard quirk

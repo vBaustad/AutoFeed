@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.2
+
+- **Settings open again on patch 1.15.9.** Clicking Settings did nothing and threw an error.
+  The patch changed how addons open their options page - it now needs a numeric category ID,
+  and AutoFeed was handing it a name.
+- Opening settings **during combat** no longer throws a "blocked" error. The game protects the
+  options panel in combat, so AutoFeed now just says to try again after the fight.
+- Updated for game version **1.15.9**.
+
 ## 1.2.1
 
 - Minimap button sits cleanly on the ring at the right size, with a hover glow, and scales
