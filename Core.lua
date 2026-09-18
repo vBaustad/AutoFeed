@@ -1,8 +1,16 @@
 -- AutoFeed: keeps a single macro pointed at the best food/drink in your bags.
--- Classic Era 1.15.x. Shares the private table `AF` across files via the addon vararg.
+-- WoW: Forever (modern 12.x client API). Shares the private table `AF` across files via the addon vararg.
 local ADDON, AF = ...
 
-AF.version = "1.2.0"
+AF.version = C_AddOns.GetAddOnMetadata(ADDON, "Version") or "?"
+
+-- The modern client dropped the global item functions; only the C_Item versions exist.
+local GetItemInfo = C_Item.GetItemInfo
+local GetItemInfoInstant = C_Item.GetItemInfoInstant
+local GetItemSpell = C_Item.GetItemSpell
+
+-- Backpack + equipped bags (the modern client adds a reagent bag slot after bag 4).
+local LAST_BAG = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4
 
 -- The dynamic "?" macro icon. With #showtooltip this auto-shows the item's icon.
 local DYNAMIC_ICON = 134400
@@ -12,6 +20,7 @@ local DYNAMIC_ICON = 134400
 -- ---------------------------------------------------------------------------
 local defaults = {
     filterBuffFood     = true,   -- ignore food/drink that grants Well Fed / stat buffs
+    wellFedXP          = true,   -- ...except while leveling without Well Fed: its +5% XP makes buff food worth it
     prioritizeConjured = true,   -- put conjured (mage) food/water first
     includeDrink       = true,   -- manage the water macro (only matters for mana classes)
     oneButton          = false,  -- if true, the food macro also drinks (one click does both)
@@ -240,7 +249,7 @@ local function ScanBags()
     local foods, foodsAll, drinks, drinksAll = {}, {}, {}, {}
     local healPots, manaPots, bandages = {}, {}, {}
 
-    for bag = 0, 4 do
+    for bag = 0, LAST_BAG do
         local slots = C_Container.GetContainerNumSlots(bag)
         for slot = 1, slots do
             local c = Classify(bag, slot)
@@ -339,21 +348,17 @@ end
 
 local function HasBuff(buffName)
     if not buffName then return false end
-    if AuraUtil and AuraUtil.FindAuraByName then
-        return AuraUtil.FindAuraByName(buffName, "player", "HELPFUL") ~= nil
+    -- Only called out of combat: in combat, aura data on this client can come back as secret values.
+    if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
+        return C_UnitAuras.GetAuraDataBySpellName("player", buffName, "HELPFUL") ~= nil
     end
-    for i = 1, 40 do
-        local n = UnitBuff("player", i)
-        if not n then break end
-        if n == buffName then return true end
-    end
-    return false
+    return AuraUtil.FindAuraByName(buffName, "player", "HELPFUL") ~= nil
 end
 
 -- Best (highest-rank) scroll per stat that's in your bags.
 local function ScanScrolls()
     local found = {}
-    for bag = 0, 4 do
+    for bag = 0, LAST_BAG do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info and info.itemID and not AF.db.blacklist[info.itemID] then
@@ -380,7 +385,7 @@ end
 -- Ignores the blacklist so excluded items remain visible (and re-includable).
 function AF:GetExcludables()
     local out, seen = {}, {}
-    for bag = 0, 4 do
+    for bag = 0, LAST_BAG do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
             local id = info and info.itemID
@@ -428,6 +433,26 @@ local function PickScroll()
         if s and not StatCovered(s) then return s end
     end
     return nil
+end
+
+-- ---------------------------------------------------------------------------
+-- Well Fed XP: on Forever every Well Fed buff also carries "Well Fed XP Boost"
+-- (+5% experience from kills), so buff food is worth eating while leveling.
+-- ---------------------------------------------------------------------------
+local function WantsWellFed()
+    if not AF.db.wellFedXP then return false end
+    if IsXPUserDisabled and IsXPUserDisabled() then return false end
+    local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion()
+    if maxLevel and UnitLevel("player") >= maxLevel then return false end
+    return not HasBuff("Well Fed")  -- every Well Fed variant uses this aura name (enUS)
+end
+
+local function BuffOnly(list)
+    local out = {}
+    for _, c in ipairs(list) do
+        if c.buff then out[#out + 1] = c end
+    end
+    return out
 end
 
 -- ---------------------------------------------------------------------------
@@ -509,13 +534,21 @@ function AF:UpdateMacro()
     -- Use the FILTERED lists: when "filter buff food" is on, Well Fed / stat food is
     -- intentionally never auto-suggested (saved for raids) - even if it's all you
     -- have. foodsAll/drinksAll are only used to word the "nothing usable" message.
-    local food = Pick(foods, "health")
+    -- Exception: while leveling without Well Fed, buff food wins (it's +5% XP). One buff
+    -- item is enough, so buff drink is only picked when there's no buff food.
+    local wantBuff = WantsWellFed()
+    local food = wantBuff and Pick(BuffOnly(foodsAll), "health") or nil
+    food = food or Pick(foods, "health")
 
     local drink
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
     if self.db.includeDrink and hasMana then
-        drink = Pick(drinks, "mana")
+        if wantBuff and not (food and food.buff) then
+            drink = Pick(BuffOnly(drinksAll), "mana")
+        end
+        drink = drink or Pick(drinks, "mana")
     end
+    self.forWellFed = wantBuff and ((food and food.buff) or (drink and drink.buff)) or false
 
     -- Food macro: food, plus the drink line too when one-button mode is on.
     local foodBody = { "#showtooltip" }
@@ -638,7 +671,8 @@ SlashCmdList.AUTOFEED = function(msg)
         print("|cff66ccffAutoFeed|r: macro refreshed.")
     elseif msg == "status" then
         local function lbl(c) return c and (c.name .. " x" .. c.count) or "none" end
-        print("|cff66ccffAutoFeed|r food: " .. lbl(AF.lastFood) .. "  |  water: " .. lbl(AF.lastDrink))
+        print("|cff66ccffAutoFeed|r food: " .. lbl(AF.lastFood) .. "  |  water: " .. lbl(AF.lastDrink)
+            .. (AF.forWellFed and "  |cffffd100(buff food: you're missing Well Fed, +5% XP)|r" or ""))
         print("|cff66ccffAutoFeed|r heal pot: " .. lbl(AF.lastHealPot)
             .. "  |  mana pot: " .. lbl(AF.lastManaPot))
         print("|cff66ccffAutoFeed|r next scroll: "
@@ -651,7 +685,7 @@ SlashCmdList.AUTOFEED = function(msg)
     elseif msg == "debug" or msg == "scan" then
         print("|cff66ccffAutoFeed|r debug -- consumables in bags (class 0 only):")
         local found = 0
-        for bag = 0, 4 do
+        for bag = 0, LAST_BAG do
             for slot = 1, C_Container.GetContainerNumSlots(bag) do
                 local info = C_Container.GetContainerItemInfo(bag, slot)
                 if info and info.itemID then
@@ -691,6 +725,7 @@ f:SetScript("OnEvent", function(_, event)
         ApplyDefaults()
         if AF.BuildOptions then AF:BuildOptions() end
         if AF.ApplyMinimapButton then AF:ApplyMinimapButton() end
+        if AF.RegisterLauncher then AF:RegisterLauncher() end
         C_Timer.After(2, function() AF:UpdateMacro() end) -- let item data cache first
         print("|cff66ccffAutoFeed|r v" .. AF.version
             .. " loaded. Type /autofeed to create macros and change options.")
@@ -701,9 +736,9 @@ f:SetScript("OnEvent", function(_, event)
     elseif event == "PLAYER_REGEN_ENABLED" then
         if AF.pending then AF:UpdateMacro() end
     elseif event == "UNIT_AURA" then
-        -- Aura changes only matter for the scroll cycler, and macros can't be
-        -- edited in combat anyway - skip the rescan entirely otherwise.
-        if AF.db and AF.db.includeScrolls and not InCombatLockdown() then
+        -- Aura changes only matter for the scroll cycler and the Well Fed check, and
+        -- macros can't be edited in combat anyway - skip the rescan entirely otherwise.
+        if AF.db and (AF.db.includeScrolls or AF.db.wellFedXP) and not InCombatLockdown() then
             AF:ScheduleUpdate()
         end
     else -- BAG_UPDATE_DELAYED / PLAYER_LEVEL_UP

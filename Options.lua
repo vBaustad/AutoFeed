@@ -54,13 +54,26 @@ local function AddCoffeeButton(panel)
 end
 
 local function MakeCheck(parent, label, key, x, y, tooltip)
-    local cb = CreateFrame("CheckButton", "AutoFeedCheck_" .. key, parent,
-        "InterfaceOptionsCheckButtonTemplate")
+    -- InterfaceOptionsCheckButtonTemplate is gone on the modern client; label and tooltip by hand.
+    local cb = CreateFrame("CheckButton", "AutoFeedCheck_" .. key, parent, "UICheckButtonTemplate")
+    cb:SetSize(26, 26)
     cb:SetPoint("TOPLEFT", x, y)
-    local fs = _G[cb:GetName() .. "Text"]
-    if fs then fs:SetText(label) end
+    local fs = parent:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+    fs:SetPoint("LEFT", cb, "RIGHT", 2, 0)
+    fs:SetJustifyH("LEFT")
+    fs:SetWordWrap(false)
+    fs:SetWidth(x < 330 and (300 - x) or 300)  -- keep the left column clear of the right one
+    fs:SetText(label)
 
-    cb.tooltipText = tooltip
+    if tooltip then
+        cb:SetScript("OnEnter", function(self)
+            GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+            GameTooltip:SetText(label, 1, 1, 1)
+            GameTooltip:AddLine(tooltip, nil, nil, nil, true)
+            GameTooltip:Show()
+        end)
+        cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
+    end
     cb:SetScript("OnClick", function(self)
         if not AF.db then return end
         AF.db[key] = self:GetChecked() and true or false
@@ -96,53 +109,60 @@ function AF:BuildOptions()
         .. (AF.db and AF.db.drinkMacroName or "AutoDrink")
         .. "' (water). Drag them from Esc > Macros onto your action bars once.")
 
-    MakeCheck(panel, "Ignore food/drink that grants buffs/stats (Well Fed)",
+    MakeCheck(panel, "Save buff food (Well Fed / stats)",
         "filterBuffFood", 16, -80,
-        "When checked, AutoFeed skips food that gives Well Fed or stat bonuses and uses plain food only.")
+        "When checked, AutoFeed skips food that gives Well Fed or stat bonuses and uses plain food, "
+        .. "so buff food is saved for raids and dungeons. See the option below for leveling.")
+
+    MakeCheck(panel, "...except while leveling (+5% XP)",
+        "wellFedXP", 36, -106,
+        "On Forever, Well Fed also increases experience from kills by 5%. While you're below max level "
+        .. "and not Well Fed, the food macro picks buff food (or buff drink if you have no buff food) "
+        .. "until the buff is up, then goes back to plain food.")
 
     MakeCheck(panel, "Prioritize conjured food/water",
-        "prioritizeConjured", 16, -110,
+        "prioritizeConjured", 16, -136,
         "Use conjured (mage) food and water before normal items.")
 
     MakeCheck(panel, "Manage the water macro (mana classes)",
-        "includeDrink", 16, -140,
+        "includeDrink", 16, -166,
         "Keep the '" .. (AF.db and AF.db.drinkMacroName or "AutoDrink")
         .. "' macro updated with your best drink. Has no effect on rage/energy classes.")
 
-    MakeCheck(panel, "Combine: make the food button also drink (one click does both)",
-        "oneButton", 16, -170,
+    MakeCheck(panel, "Food button also drinks (one click)",
+        "oneButton", 16, -196,
         "Adds the drink line to the food macro so a single click eats AND drinks. "
         .. "The separate water macro stays available too.")
 
     local potHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    potHeader:SetPoint("TOPLEFT", 16, -206)
+    potHeader:SetPoint("TOPLEFT", 16, -232)
     potHeader:SetText("Combat potions (usable in combat)")
 
-    MakeCheck(panel, "Manage the healing-potion macro ('" .. (AF.db and AF.db.healMacroName or "AutoHealPot") .. "')",
-        "includeHealPot", 16, -226,
+    MakeCheck(panel, "Healing-potion macro (" .. (AF.db and AF.db.healMacroName or "AutoHealPot") .. ")",
+        "includeHealPot", 16, -252,
         "Keeps a healing-potion macro updated with your best 3 potion tiers, strongest first. "
         .. "Works mid-fight: if your top potion runs out, it falls through to the next.")
 
-    MakeCheck(panel, "Manage the mana-potion macro ('" .. (AF.db and AF.db.manaMacroName or "AutoManaPot") .. "')",
-        "includeManaPot", 16, -256,
+    MakeCheck(panel, "Mana-potion macro (" .. (AF.db and AF.db.manaMacroName or "AutoManaPot") .. ")",
+        "includeManaPot", 16, -282,
         "Same as healing potions, for mana. No effect on rage/energy classes.")
 
-    MakeCheck(panel, "Use weakest potions first (save the strong ones)",
-        "potionWeakestFirst", 36, -282,
+    MakeCheck(panel, "Weakest potions first (save the strong)",
+        "potionWeakestFirst", 36, -308,
         "Orders the potion macros weakest-first so small potions get drained and your "
         .. "strongest are saved for real emergencies. Unchecked = strongest first.")
 
     local buffHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    buffHeader:SetPoint("TOPLEFT", 16, -318)
+    buffHeader:SetPoint("TOPLEFT", 16, -344)
     buffHeader:SetText("Scroll buffs")
 
-    MakeCheck(panel, "Manage the scroll-buff cycler ('" .. (AF.db and AF.db.scrollMacroName or "AutoScroll") .. "')",
-        "includeScrolls", 16, -338,
+    MakeCheck(panel, "Scroll-buff cycler (" .. (AF.db and AF.db.scrollMacroName or "AutoScroll") .. ")",
+        "includeScrolls", 16, -364,
         "Cycles through your Scrolls of Stamina/Strength/Agility/Intellect/Spirit/Protection, "
         .. "showing the next one whose buff you're missing. Goes blank once you're fully buffed.")
 
     -- Right-column extras: bandage macro + minimap button.
-    MakeCheck(panel, "Manage the bandage macro ('" .. (AF.db and AF.db.bandageMacroName or "AutoBandage") .. "')",
+    MakeCheck(panel, "Bandage macro (" .. (AF.db and AF.db.bandageMacroName or "AutoBandage") .. ")",
         "includeBandage", 330, -84,
         "Keeps a bandage macro pointed at your best bandage (with the next tier as a fallback). "
         .. "Bandages heal out of combat - great for hardcore.")
@@ -170,6 +190,15 @@ function AF:BuildOptions()
     })
     exBox:SetBackdropColor(0, 0, 0, 0.6)
     exBox:SetBackdropBorderColor(0.4, 0.4, 0.4)
+
+    -- The shared Forever launcher bar (LibForever): show AutoFeed's icon on it, and the bar's style.
+    local LIB = LibStub and LibStub("LibForever-1.0", true)
+    if LIB and LIB.LauncherOptions then
+        local launcherHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        launcherHeader:SetPoint("TOPLEFT", 330, -404)
+        launcherHeader:SetText("Launcher")
+        LIB.LauncherOptions(panel, "AutoFeed"):SetPoint("TOPLEFT", 326, -422)
+    end
 
     local exScroll = CreateFrame("ScrollFrame", "AutoFeedExcludeList", exBox, "UIPanelScrollFrameTemplate")
     exScroll:SetPoint("TOPLEFT", 6, -6)
@@ -222,10 +251,10 @@ function AF:BuildOptions()
     -- Create-macro buttons. Macros aren't auto-created (each costs a per-character
     -- macro slot), so the player makes the ones they want here or in the welcome.
     local macroHeader = panel:CreateFontString(nil, "ARTWORK", "GameFontNormal")
-    macroHeader:SetPoint("TOPLEFT", 16, -366)
+    macroHeader:SetPoint("TOPLEFT", 16, -404)
     macroHeader:SetText("Create macros")
     local macroHint = panel:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall")
-    macroHint:SetPoint("TOPLEFT", 16, -384)
+    macroHint:SetPoint("TOPLEFT", 16, -422)
     macroHint:SetText("Each costs one character macro slot.")
 
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
@@ -237,7 +266,7 @@ function AF:BuildOptions()
         local col, row = (i - 1) % 4, math.floor((i - 1) / 4)
         local mb = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
         mb:SetSize(108, 22)
-        mb:SetPoint("TOPLEFT", 16 + col * 112, -404 - row * 26)
+        mb:SetPoint("TOPLEFT", 16 + col * 112, -442 - row * 26)
         mb._def = def
         mb:SetScript("OnClick", function()
             AF:CreateMacroByKey(def.key)
@@ -245,7 +274,7 @@ function AF:BuildOptions()
         end)
         macroBtns[#macroBtns + 1] = mb
     end
-    local afterGrid = -404 - math.ceil(#defs / 4) * 26
+    local afterGrid = -442 - math.ceil(#defs / 4) * 26
 
     local allBtn = CreateFrame("Button", nil, panel, "UIPanelButtonTemplate")
     allBtn:SetSize(108, 22)

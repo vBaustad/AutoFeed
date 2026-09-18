@@ -1,16 +1,23 @@
-## Interface: 11509
+## Interface: 120100, 120105
 ## Title: AutoFeed
-## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Built for Classic Hardcore.
+## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Built for WoW: Forever.
 ## Author: vebjorn
-## Version: 1.2.2
+## Version: 1.3.0
 ## IconTexture: Interface\Icons\INV_Misc_Food_15
 ## SavedVariables: AutoFeedDB
+## AddonCompartmentFunc: AutoFeed_OnAddonCompartmentClick
+## AddonCompartmentFuncOnEnter: AutoFeed_OnAddonCompartmentEnter
+## AddonCompartmentFuncOnLeave: AutoFeed_OnAddonCompartmentLeave
 ## X-Category: Inventory
 ## X-Website: https://github.com/vBaustad/AutoFeed
 ## X-License: MIT
-## X-Curse-Project-ID: 1573300
+
+Libs\LibStub\LibStub.lua
+Libs\LibForever-1.0\LibForever-1.0.lua
+Libs\LibForever-1.0\Launcher.lua
 
 Core.lua
+Skin.lua
 Options.lua
 Welcome.lua
 Minimap.lua

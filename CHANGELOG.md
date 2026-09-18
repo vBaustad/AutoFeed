@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.3.0 (unreleased)
+
+Ported to the modern game client that WoW: Forever runs on.
+
+- **Buff food for XP while leveling.** On Forever, Well Fed also gives +5% experience from kills. When you're below max level and not Well Fed, the food macro now picks your best buff food (or buff drink if you have no buff food) until the buff is up, then switches back to plain food. On by default; turn it off in settings. `/autofeed status` says when it's doing this.
+- Shorter settings labels, so the left column no longer runs into the right one.
+- Item and buff lookups use the modern item and aura APIs (the old global functions are gone on this client).
+- Bags are scanned up to the last equipped bag, including the extra bag slot the modern client adds.
+- The settings checkboxes are rebuilt for the modern client: the old options checkbox template no longer exists.
+- Addon compartment entry next to the minimap: left-click for settings, right-click to create macros.
+- Forever's bronze look for the welcome window: the client's own bronze frame and stained-wood background (the same art as Forever's character creation). The settings page keeps Blizzard's standard look.
+- Button on the shared Forever launcher bar (the bronze notch on the screen edge that Guildhall also uses), with a new AutoFeed icon. Its tooltip shows the food your macro currently eats.
+- Updated for WoW: Forever (interface 120100 / 120105).
+
 ## 1.2.2
 
 - **Settings open again on patch 1.15.9.** Clicking Settings did nothing and threw an error.

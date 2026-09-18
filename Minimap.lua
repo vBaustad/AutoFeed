@@ -81,3 +81,39 @@ function AF:ApplyMinimapButton()
         btn:Hide()
     end
 end
+
+-- Addon compartment (the modern client's addon menu by the minimap): same clicks as the button.
+function AutoFeed_OnAddonCompartmentClick(_, button)
+    if button == "RightButton" then
+        if AF.ShowWelcome then AF:ShowWelcome() end
+    else
+        if AF.OpenOptions then AF:OpenOptions() end
+    end
+end
+
+function AutoFeed_OnAddonCompartmentEnter(_, menuButton)
+    GameTooltip:SetOwner(menuButton, "ANCHOR_LEFT")
+    GameTooltip:AddLine("|cff66ccffAutoFeed|r")
+    GameTooltip:AddLine("Left-click: settings", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: create macros", 1, 1, 1)
+    GameTooltip:Show()
+end
+
+function AutoFeed_OnAddonCompartmentLeave()
+    GameTooltip:Hide()
+end
+
+-- The shared launcher notch (LibForever): one bronze bar on the screen edge for all our addons.
+local LIB = LibStub and LibStub("LibForever-1.0", true)
+function AF:RegisterLauncher()
+    if not (LIB and LIB.RegisterLauncher) then return end
+    LIB.RegisterLauncher({
+        id = "AutoFeed", label = "AutoFeed", order = 40,
+        icon = "Interface\\AddOns\\AutoFeed\\Media\\notch",
+        onClick = function(button) AutoFeed_OnAddonCompartmentClick(nil, button) end,
+        status = function()
+            return AF.lastFood and ("Eating: " .. AF.lastFood.name .. " x" .. AF.lastFood.count) or nil
+        end,
+        tooltip = { "Left-click: settings", "Right-click: create macros" },
+    }, AF.db)
+end

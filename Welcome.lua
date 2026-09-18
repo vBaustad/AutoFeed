@@ -16,8 +16,8 @@ function AF:ShowWelcome()
         return
     end
 
-    local w = CreateFrame("Frame", "AutoFeedWelcome", UIParent, "BackdropTemplate")
-    w:SetSize(440, 120)  -- height set after rows lay out
+    local w = CreateFrame("Frame", "AutoFeedWelcome", UIParent)
+    w:SetSize(456, 120)  -- height set after rows lay out
     w:SetPoint("CENTER", 0, 140)
     w:SetFrameStrata("DIALOG")
     w:SetClampedToScreen(true)
@@ -26,33 +26,28 @@ function AF:ShowWelcome()
     w:RegisterForDrag("LeftButton")
     w:SetScript("OnDragStart", function(self) self:StartMoving() end)
     w:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
-    w:SetBackdrop({
-        bgFile   = "Interface\\Tooltips\\UI-Tooltip-Background",
-        edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-        tile = true, tileSize = 16, edgeSize = 16,
-        insets = { left = 4, right = 4, top = 4, bottom = 4 },
-    })
-    w:SetBackdropColor(0, 0, 0, 0.92)
-    w:SetBackdropBorderColor(0.3, 0.5, 0.85, 1)
+    -- Forever's bronze frame; the bottom brackets sit in the corners, so the buttons stay clear of them.
+    AF.Skin.Frame(w, { "BL", "BR" })
     tinsert(UISpecialFrames, "AutoFeedWelcome")  -- Escape closes
     AF.welcomeFrame = w
 
     local icon = w:CreateTexture(nil, "ARTWORK")
     icon:SetSize(28, 28)
-    icon:SetPoint("TOPLEFT", 14, -12)
+    icon:SetPoint("TOPLEFT", 22, -20)
     icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
     icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
 
     local title = w:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
     title:SetPoint("LEFT", icon, "RIGHT", 10, 0)
-    title:SetText("|cff66ccffWelcome to AutoFeed|r")
+    title:SetText("Welcome to AutoFeed")
+    title:SetTextColor(unpack(AF.Skin.GOLD))
 
     local close = CreateFrame("Button", nil, w, "UIPanelCloseButton")
-    close:SetPoint("TOPRIGHT", 2, 2)
+    close:SetPoint("TOPRIGHT", -6, -6)
     close:SetScript("OnClick", function() w:Hide() end)
 
     local body = w:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-    body:SetPoint("TOPLEFT", 16, -50)
+    body:SetPoint("TOPLEFT", 24, -58)
     body:SetWidth(408); body:SetJustifyH("LEFT"); body:SetSpacing(3)
     body:SetText("Self-updating macros that always point at the best consumable in your "
         .. "bags - eat, drink, pot, and buff from one button each.\n\n"
@@ -71,19 +66,19 @@ function AF:ShowWelcome()
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
 
     local bodyH = body:GetStringHeight() or 80
-    local y = -50 - bodyH - 14
+    local y = -58 - bodyH - 14
     local rows = {}
     for _, m in ipairs(AF.MACROS) do
         if not (m.need == "mana" and not hasMana) then
             local name = AF.db[m.slot]
             local label = w:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-            label:SetPoint("TOPLEFT", 22, y)
+            label:SetPoint("TOPLEFT", 30, y)
             label:SetWidth(300); label:SetJustifyH("LEFT")
             label:SetText("|cffffd100" .. name .. "|r  - " .. (DESC[m.key] or m.short))
 
             local btn = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
             btn:SetSize(96, 22)
-            btn:SetPoint("TOPRIGHT", -16, y + 4)
+            btn:SetPoint("TOPRIGHT", -24, y + 4)
             btn._name = name
             btn._key = m.key
             btn:SetScript("OnClick", function(self)
@@ -96,7 +91,7 @@ function AF:ShowWelcome()
     end
 
     local note = w:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    note:SetPoint("TOPLEFT", 18, y - 4)
+    note:SetPoint("TOPLEFT", 26, y - 4)
     note:SetWidth(404); note:SetJustifyH("LEFT")
     note:SetText("|cff999999AutoFeed is still in active development - if anything doesn't work as "
         .. "intended, please report it on the CurseForge or GitHub page. Thanks for testing!|r")
@@ -104,7 +99,7 @@ function AF:ShowWelcome()
 
     local settingsBtn = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
     settingsBtn:SetSize(110, 22)
-    settingsBtn:SetPoint("BOTTOMLEFT", 16, 14)
+    settingsBtn:SetPoint("BOTTOMLEFT", 40, 22)
     settingsBtn:SetText("Open Settings")
     settingsBtn:SetScript("OnClick", function()
         w:Hide()
@@ -113,7 +108,7 @@ function AF:ShowWelcome()
 
     local allBtn = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
     allBtn:SetSize(90, 22)
-    allBtn:SetPoint("BOTTOM", 0, 14)
+    allBtn:SetPoint("BOTTOM", 0, 22)
     allBtn:SetText("Create all")
     allBtn:SetScript("OnClick", function()
         if AF.CreateAllMacros then AF:CreateAllMacros() end
@@ -122,7 +117,7 @@ function AF:ShowWelcome()
 
     local okBtn = CreateFrame("Button", nil, w, "UIPanelButtonTemplate")
     okBtn:SetSize(90, 22)
-    okBtn:SetPoint("BOTTOMRIGHT", -16, 14)
+    okBtn:SetPoint("BOTTOMRIGHT", -40, 22)
     okBtn:SetText("Got it")
     okBtn:SetScript("OnClick", function() w:Hide() end)
 
@@ -136,6 +131,6 @@ function AF:ShowWelcome()
         end
     end
 
-    w:SetHeight(-(y - 4) + noteH + 48)
+    w:SetHeight(-(y - 4) + noteH + 64)
     w:Refresh()
 end

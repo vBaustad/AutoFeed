@@ -2,7 +2,7 @@
 
 <img src="Autofeed.png" alt="AutoFeed logo" width="160" align="right">
 
-**One button to eat, drink, pot, and buff.** AutoFeed keeps a small set of self-updating macros pointed at the best consumables in your bags, so you never have to drag food, water, potions, or scrolls onto your action bars again. Built for **WoW Classic Era / Hardcore (1.15.x)**.
+**One button to eat, drink, pot, and buff.** AutoFeed keeps a small set of self-updating macros pointed at the best consumables in your bags, so you never have to drag food, water, potions, or scrolls onto your action bars again. Built for **WoW: Forever** (modern 12.x client). The Classic Era 1.15.x version lives in the original AutoFeed repo.
 
 When a stack runs out, you level up, or you loot something better, the macros rewrite themselves. You place each button once and forget it.
 
@@ -12,9 +12,10 @@ When a stack runs out, you level up, or you loot something better, the macros re
 - **Healing & mana potions** — combat-safe macros that list your top 3 tiers, so if your best potion runs out mid-fight the next one fires (they share the cooldown, so only one is used). Choose **strongest-first** or **weakest-first** (drain the small ones, save the big).
 - **Scroll buffs** — cycles through your Scrolls of Stamina / Strength / Agility / Intellect / Spirit / Protection, showing the next buff you're missing and going blank once you're fully buffed. Always self-targeted, so you never buff a passerby.
 - **Bandages** — a macro pointed at your best bandage (with the next tier as a fallback). Bandages are off-cooldown healing — a hardcore staple.
-- **Minimap button** — left-click for settings, right-click to create macros, drag to reposition (toggle in Settings).
+- **Forever launcher bar** button (shared with the other Forever addons), a **minimap button** and an **addon compartment entry** — left-click for settings, right-click to create macros, drag the button to reposition (toggle in Settings).
 - **Exclude list** — a checklist of the potions and scrolls in your bags; uncheck any and the macros will never touch it (remembered by item).
 - **Buff-food filter** — ignores Well Fed / stat food by default so you save it for raids.
+- **Well Fed XP** — on Forever, Well Fed also gives +5% XP from kills. While leveling without the buff, the food macro eats buff food until it's up (optional).
 - **Self-updating** — reacts to bag changes, level-ups, and buff changes; updates are deferred during combat (you're not eating mid-fight anyway).
 
 ## The macros
@@ -32,7 +33,7 @@ AutoFeed can manage up to six per-character macros. They are **not** created aut
 
 ## Installation
 
-1. Download and unzip into `World of Warcraft/_classic_era_/Interface/AddOns/`.
+1. Download and unzip into the Forever client's `Interface/AddOns/` folder.
 2. Make sure the folder is named `AutoFeed` and contains the `.toc`.
 3. `/reload` or restart the game. A welcome window lets you create the macros you want (or use `/autofeed`), then drag them from Esc → Macros onto your bars.
 
@@ -51,7 +52,7 @@ Toggle each macro on/off, prioritize conjured items, filter buff food, combine e
 ## Notes
 
 - Item detection (food vs. potion, scroll buffs) is tuned for an **English (enUS)** client. Other locales may need pattern adjustments — open an issue.
-- Each managed macro uses one per-character macro slot (max 18). Disable any you don't use.
+- Each managed macro uses one per-character macro slot. Disable any you don't use.
 
 ## License
 
