@@ -63,7 +63,7 @@ Installed together, they share one minimap button, one welcome window (`/yippyap
 
 - Item detection (food vs. potion, scroll buffs) is tuned for an **English (enUS)** client. Other locales may need pattern adjustments — open an issue.
 - Each managed macro uses one per-character macro slot. Turn off the ones you don't use.
-- The Classic Era version of AutoFeed lives in its own repository: https://github.com/vBaustad/AutoFeed
+- The Classic Era version of AutoFeed lives in its own repository: https://github.com/vBaustad/AutoFeed-Classic
 
 ## License
 
