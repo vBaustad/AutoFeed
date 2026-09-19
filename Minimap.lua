@@ -1,101 +1,61 @@
 local ADDON, AF = ...
 
--- Lightweight minimap button (no external libs). Left-click opens settings,
--- right-click opens the welcome/create-macros window, drag moves it around the
--- minimap ring (position saved as an angle).
+-- Minimap button through LibDataBroker + LibDBIcon (via LibForever's helper), so it sits in the ring
+-- with the client's own geometry and drags like every other addon's. Same clicks as every YippYapp
+-- addon: left-click opens the addon (for AutoFeed, its welcome page with the Create buttons),
+-- right-click the settings.
+local LIB = LibStub("LibForever-1.0", true)
 
-local btn
-
-local function UpdatePosition()
-    if not btn then return end
-    local angle = math.rad((AF.db and AF.db.minimapAngle) or 200)
-    -- Hug the minimap ring; scales with the minimap's actual size so the button
-    -- doesn't drift off the edge when the minimap is resized.
-    local r = (Minimap:GetWidth() / 2) + 5
-    btn:ClearAllPoints()
-    btn:SetPoint("CENTER", Minimap, "CENTER", r * math.cos(angle), r * math.sin(angle))
+local function OnClick(_, button)
+    if button == "RightButton" then
+        AF:OpenOptions()  -- says so in combat, when the Settings panel can't open
+    else
+        AF:ShowWelcome()
+    end
 end
 
-local function OnDragUpdate()
-    local mx, my = Minimap:GetCenter()
-    local scale = Minimap:GetEffectiveScale()
-    local cx, cy = GetCursorPosition()
-    if not (mx and cx and scale and scale > 0) then return end
-    local angle = math.atan2(cy / scale - my, cx / scale - mx)
-    if AF.db then AF.db.minimapAngle = math.deg(angle) end
-    UpdatePosition()
+local function OnTooltipShow(tooltip)
+    tooltip:AddLine("|cff66ccffAutoFeed|r")
+    tooltip:AddLine("Left-click: create macros", 1, 1, 1)
+    tooltip:AddLine("Right-click: settings", 1, 1, 1)
+    tooltip:AddLine("Drag: move around the minimap", 0.6, 0.6, 0.6)
 end
 
-function AF:CreateMinimapButton()
-    if btn then return end
-    btn = CreateFrame("Button", "AutoFeedMinimapButton", Minimap)
-    btn:SetSize(31, 31)
-    btn:SetFrameStrata("MEDIUM")
-    btn:SetFrameLevel(8)
-    btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-    btn:RegisterForDrag("LeftButton")
-    btn:SetMovable(true)
+local registered = false
 
-    local icon = btn:CreateTexture(nil, "BACKGROUND")
-    icon:SetSize(17, 17)
-    icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
-    icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    icon:SetPoint("TOPLEFT", 7, -6)
-
-    local overlay = btn:CreateTexture(nil, "OVERLAY")
-    overlay:SetSize(53, 53)
-    overlay:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-    overlay:SetPoint("TOPLEFT")
-
-    -- Hover glow, matching Blizzard's own minimap buttons.
-    btn:SetHighlightTexture("Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight")
-
-    btn:SetScript("OnClick", function(_, button)
-        if button == "RightButton" then
-            if AF.ShowWelcome then AF:ShowWelcome() end
-        else
-            if AF.OpenOptions then AF:OpenOptions() end
-        end
-    end)
-    btn:SetScript("OnDragStart", function(self) self:SetScript("OnUpdate", OnDragUpdate) end)
-    btn:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
-    btn:SetScript("OnEnter", function(self)
-        GameTooltip:SetOwner(self, "ANCHOR_LEFT")
-        GameTooltip:AddLine("|cff66ccffAutoFeed|r")
-        GameTooltip:AddLine("Left-click: settings", 1, 1, 1)
-        GameTooltip:AddLine("Right-click: create macros", 1, 1, 1)
-        GameTooltip:AddLine("Drag: move around the minimap", 0.6, 0.6, 0.6)
-        GameTooltip:Show()
-    end)
-    btn:SetScript("OnLeave", function() GameTooltip:Hide() end)
-
-    UpdatePosition()
-end
-
+-- Registers the button once. Whether it shows is set on the shared YippYapp settings page.
 function AF:ApplyMinimapButton()
-    if AF.db and AF.db.minimapButton then
-        if not btn then AF:CreateMinimapButton() end
-        UpdatePosition()
-        if btn then btn:Show() end
-    elseif btn then
-        btn:Hide()
+    if not (AF.db and LIB and LIB.RegisterMinimapButton) then return end
+    if not registered then
+        -- The old hand-made button saved its spot as AF.db.minimapAngle (same degrees LibDBIcon uses);
+        -- LibDBIcon's own db (AF.db.minimap) starts there, then the old key is dropped.
+        registered = LIB.RegisterMinimapButton("AutoFeed", {
+            icon = "Interface\\AddOns\\AutoFeed\\Media\\minimap",
+            label = "AutoFeed",
+            OnClick = OnClick,
+            OnTooltipShow = OnTooltipShow,
+            migrateAngle = AF.db.minimapAngle,
+        }, AF.db)
+        if registered then AF.db.minimapAngle = nil end
+    end
+    -- AutoFeed's own "Show a minimap button" setting moved to the YippYapp page: carry a switched-off
+    -- button over once, then drop the old key.
+    if registered and AF.db.minimapButton ~= nil then
+        if AF.db.minimapButton == false then LIB.SetMinimapButtonShown("AutoFeed", false) end
+        AF.db.minimapButton = nil
     end
 end
 
 -- Addon compartment (the modern client's addon menu by the minimap): same clicks as the button.
-function AutoFeed_OnAddonCompartmentClick(_, button)
-    if button == "RightButton" then
-        if AF.ShowWelcome then AF:ShowWelcome() end
-    else
-        if AF.OpenOptions then AF:OpenOptions() end
-    end
+function AutoFeed_OnAddonCompartmentClick(frame, button)
+    OnClick(frame, button)
 end
 
 function AutoFeed_OnAddonCompartmentEnter(_, menuButton)
     GameTooltip:SetOwner(menuButton, "ANCHOR_LEFT")
     GameTooltip:AddLine("|cff66ccffAutoFeed|r")
-    GameTooltip:AddLine("Left-click: settings", 1, 1, 1)
-    GameTooltip:AddLine("Right-click: create macros", 1, 1, 1)
+    GameTooltip:AddLine("Left-click: create macros", 1, 1, 1)
+    GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
     GameTooltip:Show()
 end
 
@@ -104,7 +64,6 @@ function AutoFeed_OnAddonCompartmentLeave()
 end
 
 -- The shared launcher notch (LibForever): one bronze bar on the screen edge for all our addons.
-local LIB = LibStub and LibStub("LibForever-1.0", true)
 function AF:RegisterLauncher()
     if not (LIB and LIB.RegisterLauncher) then return end
     LIB.RegisterLauncher({
@@ -114,6 +73,6 @@ function AF:RegisterLauncher()
         status = function()
             return AF.lastFood and ("Eating: " .. AF.lastFood.name .. " x" .. AF.lastFood.count) or nil
         end,
-        tooltip = { "Left-click: settings", "Right-click: create macros" },
+        tooltip = { "Left-click: create macros", "Right-click: settings" },
     }, AF.db)
 end

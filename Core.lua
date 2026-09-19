@@ -36,9 +36,6 @@ local defaults = {
     scrollMacroName    = "AutoScroll",
     bandageMacroName   = "AutoBandage",
     blacklist          = {},     -- [itemID] = true, never use these
-    welcomed           = false,  -- first-login welcome window shown yet?
-    minimapButton      = true,   -- show a minimap button
-    minimapAngle       = 200,    -- minimap button position around the ring (degrees)
 }
 
 local function ApplyDefaults()
@@ -133,7 +130,7 @@ local function Classify(bag, slot, ignoreBlacklist)
         }
     end
 
-    -- Gate on Consumable (classID 0). Classic reports food as several different
+    -- Gate on Consumable (classID 0). Food shows up under several different
     -- subclasses, so we don't trust the subclass number -- we classify food vs
     -- potion from the tooltip wording below ("restores X over N sec" = food).
     local _, _, _, _, _, classID, subClassID = GetItemInfoInstant(itemID)
@@ -153,9 +150,9 @@ local function Classify(bag, slot, ignoreBlacklist)
     local lname = itemName:lower()
 
     local lines = GetTooltipLines(bag, slot)
-    -- Only ever cache POSITIVE verdicts, and only from fully-loaded data. A
-    -- not-yet-loaded item can momentarily look like "nothing"; caching that
-    -- negative would wrongly hide a real food/potion until /reload.
+    -- Only cache verdicts from fully-loaded data. A not-yet-loaded item can
+    -- momentarily look like "nothing"; caching that would wrongly hide a real
+    -- food/potion until /reload (see the "Use:" check below for negatives).
     local cacheable = loaded and #lines > 0
 
     local health, mana, reqLevel, buff, overTime = 0, 0, 0, false, false
@@ -191,10 +188,18 @@ local function Classify(bag, slot, ignoreBlacklist)
     end
 
     if health == 0 and mana == 0 then
-        -- A Potion (subclass 1) or Food & Drink (subclass 5) with no restore line
-        -- almost certainly hasn't finished loading its use effect - retry rather
-        -- than write it off (and never cache the negative).
-        if subClassID == 1 or subClassID == 5 then AF.scanPending = true end
+        -- Nothing we use (Swiftness, Free Action, Rage, alcohol...). Once the item and its
+        -- "Use:" text have loaded, cache that for good; without the use text, a Potion (1) or
+        -- Food & Drink (5) probably hasn't loaded its effect yet, so retry.
+        local hasUseText = false
+        for _, raw in ipairs(lines) do
+            if raw:lower():match("^use:%s*%S") then hasUseText = true; break end
+        end
+        if cacheable and hasUseText then
+            classifyCache[itemID] = false
+        elseif subClassID == 1 or subClassID == 5 then
+            AF.scanPending = true
+        end
         return nil
     end
 
@@ -346,13 +351,29 @@ local function ParseRank(name)
     return (r and ROMAN[r]) or 1
 end
 
-local function HasBuff(buffName)
-    if not buffName then return false end
-    -- Only called out of combat: in combat, aura data on this client can come back as secret values.
-    if C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName then
-        return C_UnitAuras.GetAuraDataBySpellName("player", buffName, "HELPFUL") ~= nil
+-- The player's helpful auras: names and spell IDs we can read, plus whether any aura was secret.
+-- Walks the list by index: C_UnitAuras.GetAuraDataBySpellName needs a non-secret aura and just
+-- returns nil otherwise, which looked like "buff missing" (Well Fed was re-suggested).
+-- GetAuraDataByIndex throws a Lua error for a secret aura (combat, encounters, PvP), so every index
+-- is asked about first; a secret one is skipped and marks the result unreadable.
+local function ReadPlayerAuras()
+    local names, ids, unreadable = {}, {}, false
+    for i = 1, 255 do
+        if C_Secrets.ShouldUnitAuraIndexBeSecret("player", i, "HELPFUL") then
+            unreadable = true
+        else
+            local a = C_UnitAuras.GetAuraDataByIndex("player", i, "HELPFUL")
+            if not a then break end
+            local name, id = a.name, a.spellId
+            if issecretvalue(name) or issecretvalue(id) then
+                unreadable = true
+            else
+                if name then names[name] = true end
+                if id then ids[id] = true end
+            end
+        end
     end
-    return AuraUtil.FindAuraByName(buffName, "player", "HELPFUL") ~= nil
+    return names, ids, unreadable
 end
 
 -- Best (highest-rank) scroll per stat that's in your bags.
@@ -363,6 +384,12 @@ local function ScanScrolls()
             local info = C_Container.GetContainerItemInfo(bag, slot)
             if info and info.itemID and not AF.db.blacklist[info.itemID] then
                 local name = GetItemInfo(info.itemID)
+                if not name then
+                    -- Not loaded yet (right after login): ask for it and let UpdateMacro retry,
+                    -- as Classify does, instead of reporting "all scroll buffs active".
+                    C_Item.RequestLoadItemDataByID(info.itemID)
+                    AF.scanPending = true
+                end
                 local stat = name and name:match("^Scroll of (%a+)")
                 if stat and STAT_SET[stat] then
                     local rank = ParseRank(name)
@@ -371,6 +398,7 @@ local function ScanScrolls()
                         -- (Scroll of Protection -> "Armor"), so capture the actual
                         -- on-use buff name and check that.
                         local buffName = GetItemSpell(info.itemID)
+                        if not buffName then AF.scanPending = true end
                         found[stat] = { id = info.itemID, rank = rank, name = name,
                             stat = stat, buffName = buffName }
                     end
@@ -414,23 +442,26 @@ end
 -- A stat is "covered" if the scroll's own buff is up, an aura named after the
 -- stat is up, or a non-stacking class buff for that stat is up (using the scroll
 -- then would only fail with "a more powerful spell is already active").
-local function StatCovered(s)
-    if HasBuff(s.buffName) or HasBuff(s.stat) then return true end
+local function StatCovered(s, auras)
+    if (s.buffName and auras[s.buffName]) or auras[s.stat] then return true end
     local conflicts = STAT_BUFFS[s.stat]
     if conflicts then
         for _, b in ipairs(conflicts) do
-            if HasBuff(b) then return true end
+            if auras[b] then return true end
         end
     end
     return false
 end
 
 -- The next scroll whose stat isn't already covered (in stat order); nil if done.
+-- Second return: true when some buffs couldn't be read, so the answer can't be trusted.
 local function PickScroll()
     local found = ScanScrolls()
+    local auras, _, unreadable = ReadPlayerAuras()  -- once, not per stat
+    if unreadable then return nil, true end
     for _, stat in ipairs(SCROLL_STATS) do
         local s = found[stat]
-        if s and not StatCovered(s) then return s end
+        if s and not StatCovered(s, auras) then return s end
     end
     return nil
 end
@@ -439,12 +470,24 @@ end
 -- Well Fed XP: on Forever every Well Fed buff also carries "Well Fed XP Boost"
 -- (+5% experience from kills), so buff food is worth eating while leveling.
 -- ---------------------------------------------------------------------------
+local WELL_FED_XP_SPELL = 1243969  -- the hidden "Well Fed XP Boost" aura every Well Fed carries
+
+-- "yes", "no", or "unknown" (an aura was secret, so we can't be sure it's missing).
+function AF:WellFedState()
+    local names, ids, unreadable = ReadPlayerAuras()
+    if names["Well Fed"] or ids[WELL_FED_XP_SPELL] then return "yes" end  -- aura name is enUS
+    return unreadable and "unknown" or "no"
+end
+
+-- true/false, or the previous answer when buffs can't be read (keep the macro as it was).
 local function WantsWellFed()
     if not AF.db.wellFedXP then return false end
-    if IsXPUserDisabled and IsXPUserDisabled() then return false end
-    local maxLevel = GetMaxLevelForPlayerExpansion and GetMaxLevelForPlayerExpansion()
-    if maxLevel and UnitLevel("player") >= maxLevel then return false end
-    return not HasBuff("Well Fed")  -- every Well Fed variant uses this aura name (enUS)
+    if IsXPUserDisabled() then return false end
+    if UnitLevel("player") >= GetMaxLevelForPlayerExpansion() then return false end
+    local state = AF:WellFedState()
+    if state == "unknown" then return AF.lastWantBuff or false end
+    AF.lastWantBuff = (state == "no")
+    return AF.lastWantBuff
 end
 
 local function BuffOnly(list)
@@ -485,7 +528,14 @@ AF.MACROS = {
 }
 
 -- Create every macro that applies to this class, in one go (for a "Create all" button).
+local function CombatBlocked()
+    if not InCombatLockdown() then return false end
+    print("|cff66ccffAutoFeed|r: can't create macros in combat - try again after the fight.")
+    return true
+end
+
 function AF:CreateAllMacros()
+    if CombatBlocked() then return end
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
     for _, m in ipairs(AF.MACROS) do
         if not (m.need == "mana" and not hasMana) then AF:CreateMacroByKey(m.key) end
@@ -496,7 +546,7 @@ end
 -- so UpdateMacro keeps it current, then fills the body immediately. Returns false
 -- (with a chat note) if the character's macro slots are full.
 function AF:CreateMacroByKey(key)
-    if not self.db then return false end
+    if not self.db or CombatBlocked() then return false end
     local def
     for _, m in ipairs(AF.MACROS) do if m.key == key then def = m; break end end
     if not def then return false end
@@ -607,8 +657,10 @@ function AF:UpdateMacro()
     end
 
     -- Scroll-buff cycler: next scroll whose buff you lack; blank once fully buffed.
-    if self.db.includeScrolls then
-        local scroll = PickScroll()
+    -- Buffs that can't be read (secret) leave the macro as it was: neither "covered" nor "missing".
+    local scroll, aurasUnreadable
+    if self.db.includeScrolls then scroll, aurasUnreadable = PickScroll() end
+    if self.db.includeScrolls and not aurasUnreadable then
         local body = { "#showtooltip" }
         if scroll then
             body[#body + 1] = "/use [@player] item:" .. scroll.id  -- always buff yourself
@@ -638,9 +690,15 @@ function AF:UpdateMacro()
     -- Right after login (and sometimes after big bag changes) item data isn't
     -- cached yet, so the scan can miss food/potions that really are in the bags.
     -- When ScanBags flagged that, retry shortly - bounded - until it settles.
+    -- One retry timer at a time, however many updates run meanwhile.
     if self.scanPending and (self.loadRetries or 0) < 8 then
         self.loadRetries = (self.loadRetries or 0) + 1
-        C_Timer.After(1.5, function() AF:UpdateMacro() end)
+        if not self.retryTimer then
+            self.retryTimer = C_Timer.NewTimer(1.5, function()
+                AF.retryTimer = nil
+                AF:UpdateMacro()
+            end)
+        end
     elseif not self.scanPending then
         self.loadRetries = 0
     end
@@ -661,18 +719,32 @@ end
 -- ---------------------------------------------------------------------------
 SLASH_AUTOFEED1 = "/autofeed"
 SLASH_AUTOFEED2 = "/af"
+
+-- "Refresh now" (settings button and /af update): re-read everything and rewrite the macros.
+-- Macros can't be edited in combat, so then it's queued for the end of the fight - and says so.
+function AF:RefreshNow()
+    AF.lastBody = nil
+    wipe(classifyCache)   -- drop any stale verdicts so everything is re-read
+    AF.loadRetries = 0
+    AF:UpdateMacro()
+    if AF.pending then
+        print("|cff66ccffAutoFeed|r: macros can't change in combat - they'll refresh when the fight ends.")
+    else
+        print("|cff66ccffAutoFeed|r: macros refreshed.")
+    end
+end
+
 SlashCmdList.AUTOFEED = function(msg)
     msg = (msg or ""):lower():gsub("^%s+", ""):gsub("%s+$", "")
     if msg == "update" or msg == "refresh" then
-        AF.lastBody = nil
-        wipe(classifyCache)   -- drop any stale verdicts so everything is re-read
-        AF.loadRetries = 0
-        AF:UpdateMacro()
-        print("|cff66ccffAutoFeed|r: macro refreshed.")
+        AF:RefreshNow()
     elseif msg == "status" then
         local function lbl(c) return c and (c.name .. " x" .. c.count) or "none" end
         print("|cff66ccffAutoFeed|r food: " .. lbl(AF.lastFood) .. "  |  water: " .. lbl(AF.lastDrink)
             .. (AF.forWellFed and "  |cffffd100(buff food: you're missing Well Fed, +5% XP)|r" or ""))
+        local _, _, unreadable = ReadPlayerAuras()
+        print("|cff66ccffAutoFeed|r Well Fed: " .. AF:WellFedState()
+            .. (unreadable and "  |cff999999(some of your buffs are hidden from addons)|r" or ""))
         print("|cff66ccffAutoFeed|r heal pot: " .. lbl(AF.lastHealPot)
             .. "  |  mana pot: " .. lbl(AF.lastManaPot))
         print("|cff66ccffAutoFeed|r next scroll: "
@@ -727,19 +799,14 @@ f:SetScript("OnEvent", function(_, event)
         if AF.ApplyMinimapButton then AF:ApplyMinimapButton() end
         if AF.RegisterLauncher then AF:RegisterLauncher() end
         C_Timer.After(2, function() AF:UpdateMacro() end) -- let item data cache first
-        print("|cff66ccffAutoFeed|r v" .. AF.version
-            .. " loaded. Type /autofeed to create macros and change options.")
-        if not AF.db.welcomed then
-            AF.db.welcomed = true
-            C_Timer.After(3, function() if AF.ShowWelcome then AF:ShowWelcome() end end)
-        end
+        AF:RegisterWelcome()  -- the shared YippYapp window opens itself while no macro exists
     elseif event == "PLAYER_REGEN_ENABLED" then
-        if AF.pending then AF:UpdateMacro() end
+        if AF.pending then AF:ScheduleUpdate() end
     elseif event == "UNIT_AURA" then
-        -- Aura changes only matter for the scroll cycler and the Well Fed check, and
-        -- macros can't be edited in combat anyway - skip the rescan entirely otherwise.
-        if AF.db and (AF.db.includeScrolls or AF.db.wellFedXP) and not InCombatLockdown() then
-            AF:ScheduleUpdate()
+        -- Aura changes only matter for the scroll cycler and the Well Fed check. Macros can't be
+        -- edited in combat, so a change during combat is caught up on when it ends.
+        if AF.db and (AF.db.includeScrolls or AF.db.wellFedXP) then
+            if InCombatLockdown() then AF.pending = true else AF:ScheduleUpdate() end
         end
     else -- BAG_UPDATE_DELAYED / PLAYER_LEVEL_UP
         if AF.db then AF:ScheduleUpdate() end

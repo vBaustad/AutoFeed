@@ -1,23 +1,31 @@
-## Interface: 120100, 120105
+## Interface: 16001
 ## Title: AutoFeed
-## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Built for WoW: Forever.
+## Category: YippYapp
+## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Part of YippYapp - addons for WoW: Forever that work even better together.
 ## Author: vebjorn
-## Version: 1.3.0
-## IconTexture: Interface\Icons\INV_Misc_Food_15
+## Version: 1.4.0-beta1
+## IconTexture: Interface\AddOns\AutoFeed\Media\icon
 ## SavedVariables: AutoFeedDB
+## SavedVariablesPerCharacter: AutoFeedCharDB
 ## AddonCompartmentFunc: AutoFeed_OnAddonCompartmentClick
 ## AddonCompartmentFuncOnEnter: AutoFeed_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: AutoFeed_OnAddonCompartmentLeave
 ## X-Category: Inventory
-## X-Website: https://github.com/vBaustad/AutoFeed
+## X-Website: https://github.com/vBaustad/AutoFeed-Forever
 ## X-License: MIT
 
 Libs\LibStub\LibStub.lua
+Libs\CallbackHandler-1.0\CallbackHandler-1.0.lua
+Libs\LibDataBroker-1.1\LibDataBroker-1.1.lua
+Libs\LibDBIcon-1.0\lib.xml
 Libs\LibForever-1.0\LibForever-1.0.lua
 Libs\LibForever-1.0\Launcher.lua
+Libs\LibForever-1.0\Windows.lua
+Libs\LibForever-1.0\Welcome.lua
+Libs\LibForever-1.0\Minimap.lua
+Libs\LibForever-1.0\Settings.lua
 
 Core.lua
-Skin.lua
 Options.lua
 Welcome.lua
 Minimap.lua

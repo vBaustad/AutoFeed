@@ -1,17 +1,33 @@
 # Changelog
 
+## 1.4.0-beta1
+
+- **One welcome window for all YippYapp addons.** AutoFeed no longer opens its own first-time window. Its introduction and the Create buttons for the macros are now a page in the shared YippYapp welcome window, which opens by itself (never in combat or in a dungeon) while you have no AutoFeed macros yet. `/autofeed welcome`, left-clicking the AutoFeed icon on the minimap (behind the YippYapp button if you use several YippYapp addons), and `/yippyapp` open it by hand.
+- **Tidier settings page:** sections for Macros, Food & water, Potions, Scrolls & bandages and Exclusions, with the version in the title. The minimap and launcher buttons are now switched on and off on the shared YippYapp settings page (Options > AddOns > YippYapp); if you had turned AutoFeed's minimap button off, it stays off.
+- **Clicks swapped to match the other YippYapp addons:** left-click the AutoFeed icon (minimap, addon compartment, launcher) opens the page with the Create buttons, right-click opens the settings.
+- **Welcome / what's new** button on the settings page opens AutoFeed's page in that window.
+- The minimap button now uses the standard LibDBIcon button, so the icon sits centred in the ring and drags like other addons' buttons. It keeps the spot you had it in.
+- If you already saw the old AutoFeed welcome window, the new one doesn't pop up for you.
+- The welcome page counts as seen per character, so a new alt with no AutoFeed macros still gets it.
+- Potions and drinks AutoFeed doesn't use (Swiftness, Free Action, alcohol and so on) no longer make it rescan your bags over and over after every bag change.
+- Scrolls are found right after login too, instead of the scroll macro saying "all scroll buffs active" until the next bag change.
+- Buffs gained or lost during combat update the macros once combat ends.
+- Create buttons say "can't create macros in combat" in combat, instead of claiming your macro slots are full.
+- No more "AutoFeed loaded" line in chat at login.
+
 ## 1.3.0 (unreleased)
 
 Ported to the modern game client that WoW: Forever runs on.
 
 - **Buff food for XP while leveling.** On Forever, Well Fed also gives +5% experience from kills. When you're below max level and not Well Fed, the food macro now picks your best buff food (or buff drink if you have no buff food) until the buff is up, then switches back to plain food. On by default; turn it off in settings. `/autofeed status` says when it's doing this.
+- Your buffs are read more reliably, so buff food is no longer suggested while you already have Well Fed. When some of your buffs are hidden from addons, AutoFeed doesn't suggest buff food, since it can't tell whether Well Fed is missing. `/autofeed status` shows what it sees.
 - Shorter settings labels, so the left column no longer runs into the right one.
 - Item and buff lookups use the modern item and aura APIs (the old global functions are gone on this client).
 - Bags are scanned up to the last equipped bag, including the extra bag slot the modern client adds.
 - The settings checkboxes are rebuilt for the modern client: the old options checkbox template no longer exists.
-- Addon compartment entry next to the minimap: left-click for settings, right-click to create macros.
+- Addon compartment entry next to the minimap.
 - Forever's bronze look for the welcome window: the client's own bronze frame and stained-wood background (the same art as Forever's character creation). The settings page keeps Blizzard's standard look.
-- Button on the shared Forever launcher bar (the bronze notch on the screen edge that Guildhall also uses), with a new AutoFeed icon. Its tooltip shows the food your macro currently eats.
+- Optional button on the shared YippYapp launcher bar (off by default), with a new AutoFeed icon. Its tooltip shows the food your macro currently eats.
 - Updated for WoW: Forever (interface 120100 / 120105).
 
 ## 1.2.2
