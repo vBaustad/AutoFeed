@@ -11,7 +11,7 @@
 ## AddonCompartmentFuncOnEnter: AutoFeed_OnAddonCompartmentEnter
 ## AddonCompartmentFuncOnLeave: AutoFeed_OnAddonCompartmentLeave
 ## X-Category: Inventory
-## X-Website: https://github.com/vBaustad/AutoFeed-Forever
+## X-Website: https://github.com/vBaustad/AutoFeed
 ## X-License: MIT
 
 Libs\LibStub\LibStub.lua
