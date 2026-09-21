@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.0-beta2
+
+- Updated shared YippYapp library: settings under Options > AddOns > YippYapp, the shared minimap button keeps its position.
+- Buffs are never read while the game keeps them hidden, so no errors in combat or encounters.
+
 ## 1.4.0-beta1
 
 - **One welcome window for all YippYapp addons.** AutoFeed no longer opens its own first-time window. Its introduction and the Create buttons for the macros are now a page in the shared YippYapp welcome window, which opens by itself (never in combat or in a dungeon) while you have no AutoFeed macros yet. `/autofeed welcome`, left-clicking the AutoFeed icon on the minimap (behind the YippYapp button if you use several YippYapp addons), and `/yippyapp` open it by hand.
