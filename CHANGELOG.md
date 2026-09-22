@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0-beta3
+
+- Updated shared YippYapp library: addon messages are resent after the game refuses them, and windows open above the Options window instead of closing it.
+
 ## 1.4.0-beta2
 
 - Updated shared YippYapp library: settings under Options > AddOns > YippYapp, the shared minimap button keeps its position.
