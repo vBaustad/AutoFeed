@@ -3,7 +3,7 @@
 ## Category: YippYapp
 ## Notes: One-button auto-updating macros for food, water, potions, scrolls, and bandages. Part of YippYapp - addons for WoW: Forever that work even better together.
 ## Author: vebjorn
-## Version: 1.4.0-beta3
+## Version: 1.4.0-beta4
 ## IconTexture: Interface\AddOns\AutoFeed\Media\icon
 ## SavedVariables: AutoFeedDB
 ## SavedVariablesPerCharacter: AutoFeedCharDB

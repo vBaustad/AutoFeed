@@ -32,15 +32,15 @@ AutoFeed can manage up to six per-character macros. They are **not** created aut
 
 ## Getting around
 
-- **The AutoFeed icon on the minimap** (behind the YippYapp button if you use several YippYapp addons): left-click opens the page with the Create buttons, right-click opens the settings. The same clicks work in the addon compartment.
+- **The AutoFeed icon on the minimap** (behind the YippYapp button if you use several YippYapp addons): click it to open AutoFeed's settings, where the Create-macro buttons are. The addon compartment does the same.
 - `/autofeed` (or `/af`) — open the settings
-- `/autofeed welcome` — open the page with the Create buttons
+- `/autofeed welcome` — open AutoFeed's page in the YippYapp welcome window
 - `/autofeed status` — show what each macro currently points at, and whether you're Well Fed
 - `/autofeed update` — rescan your bags and rewrite the macros now
 
 ## Settings
 
-In **Options → AddOns → YippYapp → AutoFeed**: turn each macro on or off, save or eat buff food, put conjured items first, combine eat + drink into one button, choose the potion order, and exclude specific potions and scrolls.
+Click the AutoFeed icon, or use `/af`, to open AutoFeed's settings in the YippYapp window (Blizzard's **Options → AddOns → YippYapp** has a button for it too). There you can turn each macro on or off, save or eat buff food, put conjured items first, combine eat + drink into one button, choose the potion order, and exclude specific potions and scrolls.
 
 ## Part of YippYapp
 
@@ -51,7 +51,7 @@ AutoFeed works fully on its own. It is also part of **YippYapp**, a family of ad
 - **Skillwright** plans the cheapest route to max profession skill, from the game's own recipe data.
 - **Campfire** shows which guildies are nearby: how far away, in which direction, and a one-click whisper.
 
-Installed together, they share one minimap button, one welcome window (`/yippyapp`), and one settings page for the shared bits (Options → AddOns → YippYapp).
+Installed together, they share one minimap button and one window (`/yippyapp`) that holds the welcome pages and every addon's settings.
 
 ## Installation
 

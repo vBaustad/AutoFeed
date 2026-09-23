@@ -113,6 +113,10 @@ function AF:RegisterWelcome()
     LIB.RegisterWelcome({
         id = "AutoFeed", title = "AutoFeed", icon = "Interface\\AddOns\\AutoFeed\\Media\\icon", version = 1,
         subtitle = "Self-updating macros for your best food, water and potions.",
+        blurb = "One button each to eat, drink, pot and buff - always your best consumable.",
+        reason = "no macros created yet",
+        setupLabel = "Create macros",
+        onOpen = function() AF:OpenOptions() end,  -- "Open" goes to the settings, where the macros are
         needsSetup = function() return not AF:AnyMacroExists() end,
         build = function(page) AF:BuildWelcomePage(page) end,
         onShow = function(page) if page.Refresh then page:Refresh() end end,

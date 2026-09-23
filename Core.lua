@@ -15,6 +15,9 @@ local LAST_BAG = NUM_TOTAL_EQUIPPED_BAG_SLOTS or NUM_BAG_SLOTS or 4
 -- The dynamic "?" macro icon. With #showtooltip this auto-shows the item's icon.
 local DYNAMIC_ICON = 134400
 
+local MAX_BLACKLIST = 250   -- excluded items kept in SavedVariables
+local MAX_CACHE = 400       -- classified items kept in memory
+
 -- ---------------------------------------------------------------------------
 -- Defaults / saved variables
 -- ---------------------------------------------------------------------------
@@ -35,7 +38,7 @@ local defaults = {
     manaMacroName      = "AutoManaPot",
     scrollMacroName    = "AutoScroll",
     bandageMacroName   = "AutoBandage",
-    blacklist          = {},     -- [itemID] = true, never use these
+    blacklist          = {},     -- [itemID] = time() it was excluded, never use these
 }
 
 local function ApplyDefaults()
@@ -50,6 +53,22 @@ local function ApplyDefaults()
         end
     end
     AF.db = AutoFeedDB
+
+    -- Per character: which macros AutoFeed made (never touch anyone else's).
+    AutoFeedCharDB = AutoFeedCharDB or {}
+    if type(AutoFeedCharDB.owned) ~= "table" then AutoFeedCharDB.owned = {} end
+    AF.char = AutoFeedCharDB
+
+    -- The exclusion list is the only saved table that grows with use. Each entry is the time it was
+    -- excluded; keep the newest MAX_BLACKLIST and drop the rest, so it can't grow without bound.
+    local ids = {}
+    for id, v in pairs(AutoFeedDB.blacklist) do
+        ids[#ids + 1] = { id = id, t = tonumber(v) or 0 }
+    end
+    if #ids > MAX_BLACKLIST then
+        table.sort(ids, function(a, b) return a.t > b.t end)
+        for i = MAX_BLACKLIST + 1, #ids do AutoFeedDB.blacklist[ids[i].id] = nil end
+    end
 end
 
 -- ---------------------------------------------------------------------------
@@ -106,6 +125,15 @@ end
 -- cache the static classification. false = "not a consumable we care about".
 -- Bounded by distinct items seen in bags - tiny.
 local classifyCache = {}
+local classifyCount = 0
+
+local function CacheVerdict(itemID, verdict)
+    if classifyCount >= MAX_CACHE then   -- rebuilt on demand; bounded by items actually seen
+        classifyCache, classifyCount = {}, 0
+    end
+    if classifyCache[itemID] == nil then classifyCount = classifyCount + 1 end
+    classifyCache[itemID] = verdict
+end
 
 local function Classify(bag, slot, ignoreBlacklist)
     local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -134,7 +162,7 @@ local function Classify(bag, slot, ignoreBlacklist)
     -- subclasses, so we don't trust the subclass number -- we classify food vs
     -- potion from the tooltip wording below ("restores X over N sec" = food).
     local _, _, _, _, _, classID, subClassID = GetItemInfoInstant(itemID)
-    if classID ~= 0 then classifyCache[itemID] = false; return nil end
+    if classID ~= 0 then CacheVerdict(itemID, false); return nil end
 
     local itemName = GetItemInfo(itemID)
     local loaded = itemName ~= nil
@@ -178,7 +206,7 @@ local function Classify(bag, slot, ignoreBlacklist)
         if heal > 0 then
             local rec = { name = itemName, reqLevel = reqLevel, buff = false,
                 conjured = false, health = heal, mana = 0, kind = "bandage" }
-            if cacheable then classifyCache[itemID] = rec end
+            if cacheable then CacheVerdict(itemID, rec) end
             return {
                 id = itemID, name = itemName, count = info.stackCount or 1,
                 reqLevel = reqLevel, buff = false, conjured = false,
@@ -196,7 +224,7 @@ local function Classify(bag, slot, ignoreBlacklist)
             if raw:lower():match("^use:%s*%S") then hasUseText = true; break end
         end
         if cacheable and hasUseText then
-            classifyCache[itemID] = false
+            CacheVerdict(itemID, false)
         elseif subClassID == 1 or subClassID == 5 then
             AF.scanPending = true
         end
@@ -220,16 +248,16 @@ local function Classify(bag, slot, ignoreBlacklist)
     -- cooldown and would double-fire in the fallback list. Real potions are
     -- subclass 1 or literally contain "Potion" in the name (enUS).
     if kind == "potion" and subClassID ~= 1 and not lname:find("potion") then
-        if cacheable then classifyCache[itemID] = false end
+        if cacheable then CacheVerdict(itemID, false) end
         return nil
     end
 
     local conjured = (lname:find("conjured") ~= nil)
     if cacheable then
-        classifyCache[itemID] = {
+        CacheVerdict(itemID, {
             name = itemName, reqLevel = reqLevel, buff = buff, conjured = conjured,
             health = health, mana = mana, kind = kind,
-        }
+        })
     end
 
     return {
@@ -248,6 +276,21 @@ end
 -- ---------------------------------------------------------------------------
 -- Scan all bags -> filtered + unfiltered candidate lists
 -- ---------------------------------------------------------------------------
+-- What the bags hold right now, as a cheap string. Item data isn't read, only IDs and counts.
+local function BagSignature()
+    local parts = {}
+    for bag = 0, LAST_BAG do
+        for slot = 1, C_Container.GetContainerNumSlots(bag) do
+            local info = C_Container.GetContainerItemInfo(bag, slot)
+            if info and info.itemID then
+                parts[#parts + 1] = info.itemID .. "x" .. (info.stackCount or 1)
+            end
+        end
+    end
+    parts[#parts + 1] = "L" .. UnitLevel("player")
+    return table.concat(parts, ",")
+end
+
 local function ScanBags()
     AF.scanPending = false   -- Classify() sets this true if any item wasn't loaded yet
     local level = UnitLevel("player")
@@ -490,6 +533,14 @@ local function WantsWellFed()
     return AF.lastWantBuff
 end
 
+-- Macro lines are built from our own text plus an item ID as a number, never from an item name,
+-- link or tooltip text, so nothing a weird item name contains can end up as macro commands.
+local function UseLine(id, self_)
+    id = tonumber(id)
+    if not id then return nil end
+    return self_ and ("/use [@player] item:%d"):format(id) or ("/use item:%d"):format(id)
+end
+
 local function BuffOnly(list)
     local out = {}
     for _, c in ipairs(list) do
@@ -504,6 +555,46 @@ end
 -- Updates an EXISTING macro's body (skips the call if unchanged). It never
 -- creates a macro - macros cost a per-character slot, so the player makes the
 -- ones they want from the welcome window or settings. Missing macros are skipped.
+-- A body only AutoFeed writes: "#showtooltip", then /use lines with a plain item ID, or one of
+-- our own /run print notes. Used to recognise our macros from before we recorded them.
+local function LooksLikeOurs(body)
+    if not body or body == "" then return false end
+    local lines, first = 0, true
+    for line in body:gmatch("[^\n]+") do
+        lines = lines + 1
+        if first then
+            if line ~= "#showtooltip" then return false end
+            first = false
+        elseif not (line:match("^/use item:%d+$")
+            or line:match("^/use %[@player%] item:%d+$")
+            or line:match('^/run print%("|cff66ccffAutoFeed|r: [^"]*"%)$')) then
+            return false
+        end
+    end
+    return lines > 0
+end
+
+-- Only ever edit a macro AutoFeed made. Installs from before we recorded that adopt a macro whose
+-- body is one we would have written; anything else with the same name is somebody's own macro and
+-- is left alone (said once per name).
+local function OwnedMacro(name)
+    local owned = AF.char and AF.char.owned
+    if not owned then return false end
+    if owned[name] then return true end
+    if LooksLikeOurs(GetMacroBody(name)) then
+        owned[name] = true
+        return true
+    end
+    AF.warnedForeign = AF.warnedForeign or {}
+    if not AF.warnedForeign[name] then
+        AF.warnedForeign[name] = true
+        print("|cff66ccffAutoFeed|r: '" .. tostring(name)
+            .. "' is a macro AutoFeed didn't create, so it is left untouched. "
+            .. "Rename or delete it, then create the AutoFeed macro again.")
+    end
+    return false
+end
+
 function AF:WriteMacro(name, body)
     self.lastBody = self.lastBody or {}
     local idx = GetMacroIndexByName(name)
@@ -511,6 +602,7 @@ function AF:WriteMacro(name, body)
         self.lastBody[name] = nil   -- doesn't exist; nothing to keep in sync
         return
     end
+    if not OwnedMacro(name) then return end
     if self.lastBody[name] == body then return end
     self.lastBody[name] = body
     pcall(EditMacro, idx, name, DYNAMIC_ICON, body)
@@ -555,13 +647,16 @@ function AF:CreateMacroByKey(key)
     if def.toggle then self.db[def.toggle] = true end
 
     local idx = GetMacroIndexByName(name)
-    if not (idx and idx > 0) then
+    if idx and idx > 0 then
+        if not OwnedMacro(name) then return false end   -- somebody else's macro with that name
+    else
         local ok = pcall(CreateMacro, name, DYNAMIC_ICON, "#showtooltip", true) -- per-character
         if not ok then
             print("|cff66ccffAutoFeed|r: couldn't create '" .. name
                 .. "' - your character macro slots are full. Free one (Esc > Macros) and try again.")
             return false
         end
+        self.char.owned[name] = true   -- ours from now on
         print("|cff66ccffAutoFeed|r: created '" .. name
             .. "'. Drag it from Esc > Macros onto your action bars.")
     end
@@ -580,7 +675,15 @@ function AF:UpdateMacro()
     end
     self.pending = nil
 
-    local foods, foodsAll, drinks, drinksAll, healPots, manaPots, bandages = ScanBags()
+    -- Bag events fire for all sorts of reasons (moving things around, a stack merging). When the
+    -- bags and the level are what they were at the last scan, reuse that scan's lists instead of
+    -- classifying everything again; a settings change clears bagSig to force a fresh scan.
+    local sig = BagSignature()
+    if sig ~= self.bagSig or not self.lists then
+        self.lists = { ScanBags() }
+        self.bagSig = sig
+    end
+    local foods, foodsAll, drinks, drinksAll, healPots, manaPots, bandages = unpack(self.lists, 1, 7)
     -- Use the FILTERED lists: when "filter buff food" is on, Well Fed / stat food is
     -- intentionally never auto-suggested (saved for raids) - even if it's all you
     -- have. foodsAll/drinksAll are only used to word the "nothing usable" message.
@@ -603,10 +706,10 @@ function AF:UpdateMacro()
     -- Food macro: food, plus the drink line too when one-button mode is on.
     local foodBody = { "#showtooltip" }
     if food then
-        foodBody[#foodBody + 1] = "/use item:" .. food.id
+        foodBody[#foodBody + 1] = UseLine(food.id)
     end
     if self.db.oneButton and drink and (not food or drink.id ~= food.id) then
-        foodBody[#foodBody + 1] = "/use item:" .. drink.id
+        foodBody[#foodBody + 1] = UseLine(drink.id)
     end
     if #foodBody == 1 then
         local msg = (#foodsAll > 0) and "only buff food in bags - saved for raids (/autofeed to change)"
@@ -619,7 +722,7 @@ function AF:UpdateMacro()
     if self.db.includeDrink and hasMana then
         local drinkBody = { "#showtooltip" }
         if drink then
-            drinkBody[#drinkBody + 1] = "/use item:" .. drink.id
+            drinkBody[#drinkBody + 1] = UseLine(drink.id)
         else
             local msg = (#drinksAll > 0) and "only buff drink in bags - saved for raids (/autofeed to change)"
                 or "no usable water in bags"
@@ -633,7 +736,7 @@ function AF:UpdateMacro()
         local top = PickTop(healPots, "health", 3)
         local body = { "#showtooltip" }
         for _, p in ipairs(top) do
-            body[#body + 1] = "/use item:" .. p.id
+            body[#body + 1] = UseLine(p.id)
         end
         if #body == 1 then
             body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no healing potion in bags")'
@@ -647,7 +750,7 @@ function AF:UpdateMacro()
         local top = PickTop(manaPots, "mana", 3)
         local body = { "#showtooltip" }
         for _, p in ipairs(top) do
-            body[#body + 1] = "/use item:" .. p.id
+            body[#body + 1] = UseLine(p.id)
         end
         if #body == 1 then
             body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no mana potion in bags")'
@@ -663,7 +766,7 @@ function AF:UpdateMacro()
     if self.db.includeScrolls and not aurasUnreadable then
         local body = { "#showtooltip" }
         if scroll then
-            body[#body + 1] = "/use [@player] item:" .. scroll.id  -- always buff yourself
+            body[#body + 1] = UseLine(scroll.id, true)  -- always buff yourself
         else
             body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: all scroll buffs active (or none in bags)")'
         end
@@ -676,7 +779,7 @@ function AF:UpdateMacro()
         local top = PickTop(bandages, "health", 2)
         local body = { "#showtooltip" }
         for _, b in ipairs(top) do
-            body[#body + 1] = "/use item:" .. b.id
+            body[#body + 1] = UseLine(b.id)
         end
         if #body == 1 then
             body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no bandage in bags")'
@@ -725,6 +828,8 @@ SLASH_AUTOFEED2 = "/af"
 function AF:RefreshNow()
     AF.lastBody = nil
     wipe(classifyCache)   -- drop any stale verdicts so everything is re-read
+    classifyCount = 0
+    AF.bagSig = nil       -- and rescan the bags even if nothing in them changed
     AF.loadRetries = 0
     AF:UpdateMacro()
     if AF.pending then

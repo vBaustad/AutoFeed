@@ -1,23 +1,18 @@
 local ADDON, AF = ...
 
 -- Minimap button through LibDataBroker + LibDBIcon (via LibForever's helper), so it sits in the ring
--- with the client's own geometry and drags like every other addon's. Same clicks as every YippYapp
--- addon: left-click opens the addon (for AutoFeed, its welcome page with the Create buttons),
--- right-click the settings.
+-- with the client's own geometry and drags like every other addon's. Left-click opens the addon's
+-- main window; AutoFeed has none, so both clicks open its settings in the YippYapp window (the
+-- Create-macro buttons are there too). The what's-new page is reached from inside that window.
 local LIB = LibStub("LibForever-1.0", true)
 
-local function OnClick(_, button)
-    if button == "RightButton" then
-        AF:OpenOptions()  -- says so in combat, when the Settings panel can't open
-    else
-        AF:ShowWelcome()
-    end
+local function OnClick()
+    AF:OpenOptions()  -- AutoFeed's settings in the YippYapp window
 end
 
 local function OnTooltipShow(tooltip)
     tooltip:AddLine("|cff66ccffAutoFeed|r")
-    tooltip:AddLine("Left-click: create macros", 1, 1, 1)
-    tooltip:AddLine("Right-click: settings", 1, 1, 1)
+    tooltip:AddLine("Click: settings and macros", 1, 1, 1)
     tooltip:AddLine("Drag: move around the minimap", 0.6, 0.6, 0.6)
 end
 
@@ -54,8 +49,7 @@ end
 function AutoFeed_OnAddonCompartmentEnter(_, menuButton)
     GameTooltip:SetOwner(menuButton, "ANCHOR_LEFT")
     GameTooltip:AddLine("|cff66ccffAutoFeed|r")
-    GameTooltip:AddLine("Left-click: create macros", 1, 1, 1)
-    GameTooltip:AddLine("Right-click: settings", 1, 1, 1)
+    GameTooltip:AddLine("Click: settings and macros", 1, 1, 1)
     GameTooltip:Show()
 end
 
@@ -73,6 +67,6 @@ function AF:RegisterLauncher()
         status = function()
             return AF.lastFood and ("Eating: " .. AF.lastFood.name .. " x" .. AF.lastFood.count) or nil
         end,
-        tooltip = { "Left-click: create macros", "Right-click: settings" },
+        tooltip = { "Click: settings and macros" },
     }, AF.db)
 end

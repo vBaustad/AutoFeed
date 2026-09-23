@@ -1,7 +1,13 @@
 # Changelog
 
+## 1.4.0-beta4
+
+- Updated shared YippYapp library.
+
 ## 1.4.0-beta3
 
+- **AutoFeed only ever edits macros it made itself.** If a macro with one of its names already exists and isn't one of AutoFeed's, it is left alone and AutoFeed says so instead of overwriting it.
+- **Lighter on your bags:** moving things around no longer makes AutoFeed re-read every item. It only rescans when what you carry actually changed, and the settings page reads your bags when you open it rather than at login.
 - Updated shared YippYapp library: addon messages are resent after the game refuses them, and windows open above the Options window instead of closing it.
 
 ## 1.4.0-beta2
@@ -13,7 +19,7 @@
 
 - **One welcome window for all YippYapp addons.** AutoFeed no longer opens its own first-time window. Its introduction and the Create buttons for the macros are now a page in the shared YippYapp welcome window, which opens by itself (never in combat or in a dungeon) while you have no AutoFeed macros yet. `/autofeed welcome`, left-clicking the AutoFeed icon on the minimap (behind the YippYapp button if you use several YippYapp addons), and `/yippyapp` open it by hand.
 - **Tidier settings page:** sections for Macros, Food & water, Potions, Scrolls & bandages and Exclusions, with the version in the title. The minimap and launcher buttons are now switched on and off on the shared YippYapp settings page (Options > AddOns > YippYapp); if you had turned AutoFeed's minimap button off, it stays off.
-- **Clicks swapped to match the other YippYapp addons:** left-click the AutoFeed icon (minimap, addon compartment, launcher) opens the page with the Create buttons, right-click opens the settings.
+- **The AutoFeed icon goes straight to the settings:** clicking it (minimap, addon compartment, launcher) opens AutoFeed's settings in the YippYapp window, where the Create-macro buttons are. Either mouse button does the same.
 - **Welcome / what's new** button on the settings page opens AutoFeed's page in that window.
 - The minimap button now uses the standard LibDBIcon button, so the icon sits centred in the ring and drags like other addons' buttons. It keeps the spot you had it in.
 - If you already saw the old AutoFeed welcome window, the new one doesn't pop up for you.
