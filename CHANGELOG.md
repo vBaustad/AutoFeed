@@ -1,7 +1,13 @@
 # Changelog
 
+## 1.4.0-beta5
+
+- Updated shared YippYapp library.
+
 ## 1.4.0-beta4
 
+- **BagWarden knows what would be missed most.** AutoFeed ranks your consumables for it: buff food (and water, on a mana class) is the last thing offered, conjured food and surplus stacks the first.
+- **BagWarden never offers your macro consumables for deletion.** AutoFeed tells it which food, water, potions, scrolls and bandages your macros currently use, with the reason. Items you excluded in AutoFeed are not protected.
 - Updated shared YippYapp library.
 
 ## 1.4.0-beta3

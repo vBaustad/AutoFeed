@@ -4,6 +4,8 @@ local ADDON, AF = ...
 
 AF.version = C_AddOns.GetAddOnMetadata(ADDON, "Version") or "?"
 
+local LIB = LibStub("LibForever-1.0", true)
+
 -- The modern client dropped the global item functions; only the C_Item versions exist.
 local GetItemInfo = C_Item.GetItemInfo
 local GetItemInfoInstant = C_Item.GetItemInfoInstant
@@ -74,34 +76,19 @@ end
 -- ---------------------------------------------------------------------------
 -- Tooltip reading (locale: tuned for enUS health/mana strings)
 -- ---------------------------------------------------------------------------
+-- Empty when the item's tooltip hasn't loaded yet; Classify() then leaves the item uncached and
+-- UpdateMacro retries.
 local function GetTooltipLines(bag, slot)
     local lines = {}
-    if C_TooltipInfo and C_TooltipInfo.GetBagItem then
-        local data = C_TooltipInfo.GetBagItem(bag, slot)
-        if data and data.lines then
-            for _, line in ipairs(data.lines) do
-                if TooltipUtil and TooltipUtil.SurfaceArgs then
-                    TooltipUtil.SurfaceArgs(line)
-                end
-                if line.leftText then
-                    lines[#lines + 1] = line.leftText
-                end
-            end
+    local data = C_TooltipInfo.GetBagItem(bag, slot)
+    if not (data and data.lines) then return lines end
+    for _, line in ipairs(data.lines) do
+        -- TooltipUtil only loads for game type "mainline", so on Forever the fields are already
+        -- surfaced and there is nothing to call.
+        if TooltipUtil and TooltipUtil.SurfaceArgs then TooltipUtil.SurfaceArgs(line) end
+        if line.leftText then
+            lines[#lines + 1] = line.leftText
         end
-        if #lines > 0 then return lines end -- else fall through to scanning tooltip
-    end
-
-    -- Fallback: hidden scanning tooltip
-    if not AF.scanTip then
-        AF.scanTip = CreateFrame("GameTooltip", "AutoFeedScanTip", nil, "GameTooltipTemplate")
-        AF.scanTip:SetOwner(UIParent, "ANCHOR_NONE")
-    end
-    AF.scanTip:ClearLines()
-    AF.scanTip:SetBagItem(bag, slot)
-    for i = 1, AF.scanTip:NumLines() do
-        local fs = _G["AutoFeedScanTipTextLeft" .. i]
-        local t = fs and fs:GetText()
-        if t then lines[#lines + 1] = t end
     end
     return lines
 end
@@ -169,9 +156,7 @@ local function Classify(bag, slot, ignoreBlacklist)
     if not itemName then
         -- Not cached yet: ask for it, flag the scan incomplete (so UpdateMacro
         -- retries once data arrives), and skip caching this pass.
-        if C_Item and C_Item.RequestLoadItemDataByID then
-            C_Item.RequestLoadItemDataByID(itemID)
-        end
+        C_Item.RequestLoadItemDataByID(itemID)
         AF.scanPending = true
         itemName = (info.hyperlink and info.hyperlink:match("%[(.-)%]")) or ("item:" .. itemID)
     end
@@ -325,7 +310,13 @@ local function ScanBags()
         end
     end
 
-    return foods, foodsAll, drinks, drinksAll, healPots, manaPots, bandages
+    -- foodsAll/drinksAll include the buff food the filter keeps out of foods/drinks; they word the
+    -- "nothing usable" message, feed the Well Fed exception, and rank everything for BagWarden.
+    return {
+        foods = foods, foodsAll = foodsAll,
+        drinks = drinks, drinksAll = drinksAll,
+        healPots = healPots, manaPots = manaPots, bandages = bandages,
+    }
 end
 
 -- Pick the best candidate: conjured-first (optional), then strongest restore,
@@ -496,17 +487,17 @@ local function StatCovered(s, auras)
     return false
 end
 
--- The next scroll whose stat isn't already covered (in stat order); nil if done.
--- Second return: true when some buffs couldn't be read, so the answer can't be trusted.
+-- The next scroll whose stat isn't already covered (in stat order); nil if done. Also returns
+-- whether some buffs couldn't be read (so the answer can't be trusted), and every scroll found.
 local function PickScroll()
     local found = ScanScrolls()
     local auras, _, unreadable = ReadPlayerAuras()  -- once, not per stat
-    if unreadable then return nil, true end
+    if unreadable then return nil, true, found end
     for _, stat in ipairs(SCROLL_STATS) do
         local s = found[stat]
-        if s and not StatCovered(s, auras) then return s end
+        if s and not StatCovered(s, auras) then return s, false, found end
     end
-    return nil
+    return nil, false, found
 end
 
 -- ---------------------------------------------------------------------------
@@ -541,6 +532,42 @@ local function UseLine(id, self_)
     return self_ and ("/use [@player] item:%d"):format(id) or ("/use item:%d"):format(id)
 end
 
+-- How much each consumable would be missed, so BagWarden can offer the cheap stacks first and the
+-- food you are saving last. Covers everything the scan saw, not only what the macros point at: buff
+-- food is the most precious thing in the bags even while a macro ignores it.
+local RANK = { critical = 3, useful = 2, spare = 1 }
+
+local function BuildTiers(lists, protect, foundScrolls, hasMana)
+    local tiers = {}
+    local function Rank(id, tier)
+        local cur = tiers[id]
+        if not cur or RANK[tier] > RANK[cur] then tiers[id] = tier end
+    end
+    -- Conjured is checked before anything else on purpose: the tier answers "how annoyed would you
+    -- be to lose this?", and a mage remakes conjured food and water in seconds, for free - even the
+    -- conjured kind that grants a buff.
+    for _, c in ipairs(lists.foodsAll) do
+        if c.conjured then Rank(c.id, "spare")
+        elseif c.buff then Rank(c.id, "critical")       -- Well Fed / stat / +5% XP food
+        elseif protect[c.id] then Rank(c.id, "useful")  -- the plain food the macro eats
+        else Rank(c.id, "spare") end                    -- surplus stacks further down the ranking
+    end
+    for _, c in ipairs(lists.drinksAll) do
+        if c.conjured then Rank(c.id, "spare")
+        elseif c.buff then Rank(c.id, "critical")
+        elseif not hasMana then Rank(c.id, "spare")       -- a rage/energy class doesn't drink
+        elseif protect[c.id] then Rank(c.id, "critical")  -- water matters most to a mana class
+        else Rank(c.id, "useful") end
+    end
+    for _, key in ipairs({ "healPots", "manaPots", "bandages" }) do
+        for _, c in ipairs(lists[key]) do
+            Rank(c.id, protect[c.id] and "useful" or "spare")
+        end
+    end
+    for _, s in pairs(foundScrolls or {}) do Rank(s.id, "useful") end
+    return tiers
+end
+
 local function BuffOnly(list)
     local out = {}
     for _, c in ipairs(list) do
@@ -557,6 +584,114 @@ end
 -- ones they want from the welcome window or settings. Missing macros are skipped.
 -- A body only AutoFeed writes: "#showtooltip", then /use lines with a plain item ID, or one of
 -- our own /run print notes. Used to recognise our macros from before we recorded them.
+-- Everything the macros would say right now: one body per managed macro, what they point at (for
+-- BagWarden) and the picks. Pure on purpose - it writes nothing - so the self-test can build the
+-- same bodies and throw them away.
+local function BuildPlan(db, lists, hasMana)
+    local plan = { bodies = {}, protect = {}, picks = {} }
+    local protect = plan.protect
+
+    -- Use the FILTERED lists: when "filter buff food" is on, Well Fed / stat food is intentionally
+    -- never auto-suggested (saved for raids) - even if it's all you have. foodsAll/drinksAll only
+    -- word the "nothing usable" message and feed the Well Fed exception below.
+    -- Exception: while leveling without Well Fed, buff food wins (it's +5% XP). One buff item is
+    -- enough, so buff drink is only picked when there's no buff food.
+    local wantBuff = WantsWellFed()
+    local food = wantBuff and Pick(BuffOnly(lists.foodsAll), "health") or nil
+    food = food or Pick(lists.foods, "health")
+
+    local drink
+    if db.includeDrink and hasMana then
+        if wantBuff and not (food and food.buff) then
+            drink = Pick(BuffOnly(lists.drinksAll), "mana")
+        end
+        drink = drink or Pick(lists.drinks, "mana")
+    end
+    plan.forWellFed = wantBuff and ((food and food.buff) or (drink and drink.buff)) or false
+
+    local function Note(msg)
+        return '/run print("|cff66ccffAutoFeed|r: ' .. msg .. '")'
+    end
+
+    -- Food macro: food, plus the drink line too when one-button mode is on.
+    local foodBody = { "#showtooltip" }
+    if food then
+        foodBody[#foodBody + 1] = UseLine(food.id)
+        protect[food.id] = "your food macro eats this"
+    end
+    if db.oneButton and drink and (not food or drink.id ~= food.id) then
+        foodBody[#foodBody + 1] = UseLine(drink.id)
+    end
+    if #foodBody == 1 then
+        foodBody[2] = Note((#lists.foodsAll > 0)
+            and "only buff food in bags - saved for raids (/autofeed to change)"
+            or "no usable food in bags")
+    end
+    plan.bodies.macroName = table.concat(foodBody, "\n")
+
+    -- Water macro: drink only. Only managed for mana classes with drink enabled.
+    if db.includeDrink and hasMana then
+        local body = { "#showtooltip" }
+        if drink then
+            body[2] = UseLine(drink.id)
+            protect[drink.id] = "your water macro drinks this"
+        else
+            body[2] = Note((#lists.drinksAll > 0)
+                and "only buff drink in bags - saved for raids (/autofeed to change)"
+                or "no usable water in bags")
+        end
+        plan.bodies.drinkMacroName = table.concat(body, "\n")
+    end
+
+    -- Potion and bandage macros: best-first fallback lists (the potions work mid-fight, so if the
+    -- top one runs out the next fires; they share a cooldown, so only one is used).
+    local function Fallbacks(slot, list, key, n, reason, empty)
+        local top = PickTop(list, key, n)
+        local body = { "#showtooltip" }
+        for _, c in ipairs(top) do
+            body[#body + 1] = UseLine(c.id)
+            protect[c.id] = reason
+        end
+        if #body == 1 then body[2] = Note(empty) end
+        plan.bodies[slot] = table.concat(body, "\n")
+        return top[1]
+    end
+
+    if db.includeHealPot then
+        plan.picks.heal = Fallbacks("healMacroName", lists.healPots, "health", 3,
+            "your healing-potion macro uses this", "no healing potion in bags")
+    end
+    if db.includeManaPot and hasMana then
+        plan.picks.mana = Fallbacks("manaMacroName", lists.manaPots, "mana", 3,
+            "your mana-potion macro uses this", "no mana potion in bags")
+    end
+    if db.includeBandage then
+        plan.picks.bandage = Fallbacks("bandageMacroName", lists.bandages, "health", 2,
+            "your bandage macro uses this", "no bandage in bags")
+    end
+
+    -- Scroll-buff cycler: the next scroll whose buff you lack; blank once fully buffed. Buffs that
+    -- can't be read (secret) mean no body at all, so the macro keeps what it had: neither "covered"
+    -- nor "missing".
+    if db.includeScrolls then
+        local scroll, aurasUnreadable, foundScrolls = PickScroll()
+        plan.foundScrolls = foundScrolls
+        -- The cycler works through every stat in turn, so all of them are "in use", not just today's.
+        for _, s in pairs(foundScrolls or {}) do
+            protect[s.id] = "your scroll macro uses this"
+        end
+        if not aurasUnreadable then
+            plan.scrollKnown, plan.picks.scroll = true, scroll
+            plan.bodies.scrollMacroName = "#showtooltip\n" .. (scroll
+                and UseLine(scroll.id, true)  -- always buff yourself
+                or Note("all scroll buffs active (or none in bags)"))
+        end
+    end
+
+    plan.picks.food, plan.picks.drink = food, drink
+    return plan
+end
+
 local function LooksLikeOurs(body)
     if not body or body == "" then return false end
     local lines, first = 0, true
@@ -604,8 +739,11 @@ function AF:WriteMacro(name, body)
     end
     if not OwnedMacro(name) then return end
     if self.lastBody[name] == body then return end
+    -- The self-test builds bodies and throws them away; if it ever reaches here, that is a bug.
+    assert(not AF.noWrite, "AutoFeed self-test tried to edit a macro")
     self.lastBody[name] = body
     pcall(EditMacro, idx, name, DYNAMIC_ICON, body)
+    self.writeCount = (self.writeCount or 0) + 1
 end
 
 -- The macros AutoFeed manages, in display order. need="mana" entries only matter
@@ -650,7 +788,9 @@ function AF:CreateMacroByKey(key)
     if idx and idx > 0 then
         if not OwnedMacro(name) then return false end   -- somebody else's macro with that name
     else
+        assert(not AF.noWrite, "AutoFeed self-test tried to create a macro")
         local ok = pcall(CreateMacro, name, DYNAMIC_ICON, "#showtooltip", true) -- per-character
+        self.createCount = (self.createCount or 0) + 1
         if not ok then
             print("|cff66ccffAutoFeed|r: couldn't create '" .. name
                 .. "' - your character macro slots are full. Free one (Esc > Macros) and try again.")
@@ -680,115 +820,26 @@ function AF:UpdateMacro()
     -- classifying everything again; a settings change clears bagSig to force a fresh scan.
     local sig = BagSignature()
     if sig ~= self.bagSig or not self.lists then
-        self.lists = { ScanBags() }
+        self.lists = ScanBags()
         self.bagSig = sig
     end
-    local foods, foodsAll, drinks, drinksAll, healPots, manaPots, bandages = unpack(self.lists, 1, 7)
-    -- Use the FILTERED lists: when "filter buff food" is on, Well Fed / stat food is
-    -- intentionally never auto-suggested (saved for raids) - even if it's all you
-    -- have. foodsAll/drinksAll are only used to word the "nothing usable" message.
-    -- Exception: while leveling without Well Fed, buff food wins (it's +5% XP). One buff
-    -- item is enough, so buff drink is only picked when there's no buff food.
-    local wantBuff = WantsWellFed()
-    local food = wantBuff and Pick(BuffOnly(foodsAll), "health") or nil
-    food = food or Pick(foods, "health")
-
-    local drink
+    local lists = self.lists
     local hasMana = (UnitPowerMax("player", 0) or 0) > 0
-    if self.db.includeDrink and hasMana then
-        if wantBuff and not (food and food.buff) then
-            drink = Pick(BuffOnly(drinksAll), "mana")
-        end
-        drink = drink or Pick(drinks, "mana")
-    end
-    self.forWellFed = wantBuff and ((food and food.buff) or (drink and drink.buff)) or false
+    local plan = BuildPlan(self.db, lists, hasMana)
 
-    -- Food macro: food, plus the drink line too when one-button mode is on.
-    local foodBody = { "#showtooltip" }
-    if food then
-        foodBody[#foodBody + 1] = UseLine(food.id)
-    end
-    if self.db.oneButton and drink and (not food or drink.id ~= food.id) then
-        foodBody[#foodBody + 1] = UseLine(drink.id)
-    end
-    if #foodBody == 1 then
-        local msg = (#foodsAll > 0) and "only buff food in bags - saved for raids (/autofeed to change)"
-            or "no usable food in bags"
-        foodBody[#foodBody + 1] = '/run print("|cff66ccffAutoFeed|r: ' .. msg .. '")'
-    end
-    self:WriteMacro(self.db.macroName, table.concat(foodBody, "\n"))
-
-    -- Water macro: drink only. Only managed for mana classes with drink enabled.
-    if self.db.includeDrink and hasMana then
-        local drinkBody = { "#showtooltip" }
-        if drink then
-            drinkBody[#drinkBody + 1] = UseLine(drink.id)
-        else
-            local msg = (#drinksAll > 0) and "only buff drink in bags - saved for raids (/autofeed to change)"
-                or "no usable water in bags"
-            drinkBody[#drinkBody + 1] = '/run print("|cff66ccffAutoFeed|r: ' .. msg .. '")'
-        end
-        self:WriteMacro(self.db.drinkMacroName, table.concat(drinkBody, "\n"))
+    -- The only place a macro is written. WriteMacro skips any macro AutoFeed didn't create.
+    for _, m in ipairs(AF.MACROS) do
+        local body = plan.bodies[m.slot]
+        if body then self:WriteMacro(self.db[m.slot], body) end
     end
 
-    -- Healing-potion macro: best-first fallback list (usable in combat).
-    if self.db.includeHealPot then
-        local top = PickTop(healPots, "health", 3)
-        local body = { "#showtooltip" }
-        for _, p in ipairs(top) do
-            body[#body + 1] = UseLine(p.id)
-        end
-        if #body == 1 then
-            body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no healing potion in bags")'
-        end
-        self:WriteMacro(self.db.healMacroName, table.concat(body, "\n"))
-        self.lastHealPot = top[1]
-    end
-
-    -- Mana-potion macro: best-first fallback list (mana classes only).
-    if self.db.includeManaPot and hasMana then
-        local top = PickTop(manaPots, "mana", 3)
-        local body = { "#showtooltip" }
-        for _, p in ipairs(top) do
-            body[#body + 1] = UseLine(p.id)
-        end
-        if #body == 1 then
-            body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no mana potion in bags")'
-        end
-        self:WriteMacro(self.db.manaMacroName, table.concat(body, "\n"))
-        self.lastManaPot = top[1]
-    end
-
-    -- Scroll-buff cycler: next scroll whose buff you lack; blank once fully buffed.
-    -- Buffs that can't be read (secret) leave the macro as it was: neither "covered" nor "missing".
-    local scroll, aurasUnreadable
-    if self.db.includeScrolls then scroll, aurasUnreadable = PickScroll() end
-    if self.db.includeScrolls and not aurasUnreadable then
-        local body = { "#showtooltip" }
-        if scroll then
-            body[#body + 1] = UseLine(scroll.id, true)  -- always buff yourself
-        else
-            body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: all scroll buffs active (or none in bags)")'
-        end
-        self:WriteMacro(self.db.scrollMacroName, table.concat(body, "\n"))
-        self.lastScroll = scroll
-    end
-
-    -- Bandage macro: best bandage, with the next tier as a fallback.
-    if self.db.includeBandage then
-        local top = PickTop(bandages, "health", 2)
-        local body = { "#showtooltip" }
-        for _, b in ipairs(top) do
-            body[#body + 1] = UseLine(b.id)
-        end
-        if #body == 1 then
-            body[#body + 1] = '/run print("|cff66ccffAutoFeed|r: no bandage in bags")'
-        end
-        self:WriteMacro(self.db.bandageMacroName, table.concat(body, "\n"))
-        self.lastBandage = top[1]
-    end
-
-    self.lastFood, self.lastDrink = food, drink
+    self.forWellFed = plan.forWellFed
+    self.lastFood, self.lastDrink = plan.picks.food, plan.picks.drink
+    self.lastHealPot, self.lastManaPot = plan.picks.heal, plan.picks.mana
+    self.lastBandage = plan.picks.bandage
+    if plan.scrollKnown then self.lastScroll = plan.picks.scroll end  -- else keep what we last knew
+    self.protected = plan.protect
+    self.tiers = BuildTiers(lists, plan.protect, plan.foundScrolls, hasMana)
 
     -- Right after login (and sometimes after big bag changes) item data isn't
     -- cached yet, so the scan can miss food/potions that really are in the bags.
@@ -815,6 +866,87 @@ function AF:ScheduleUpdate()
         AF.timer = nil
         AF:UpdateMacro()
     end)
+end
+
+-- ---------------------------------------------------------------------------
+-- What our macros use, for the other YippYapp addons
+-- ---------------------------------------------------------------------------
+-- BagWarden asks before it offers an item for deletion: Keep() for the ones our macros point at,
+-- Tier() for how much everything else would be missed. Both are table lookups, because they are
+-- called for every candidate while the bags are open; the tables are rebuilt with the macros, so
+-- they follow the current settings and ranking and are never stale. Excluded items are in neither.
+function AF:PublishConsumables()
+    if not (LIB and LIB.ProvideData) then return end
+    LIB.ProvideData("AutoFeedConsumables", {
+        Keep = function(itemID)
+            local protect = AF.protected
+            if not protect then return nil end   -- no opinion until the first scan
+            return protect[tonumber(itemID) or itemID]
+        end,
+        -- "critical" (buff food, and water for a mana class), "useful" (what the macros use),
+        -- "spare" (conjured, and stacks further down the ranking), or nil for no opinion.
+        Tier = function(itemID)
+            local tiers = AF.tiers
+            if not tiers then return nil end
+            return tiers[tonumber(itemID) or itemID]
+        end,
+    })
+end
+
+-- ---------------------------------------------------------------------------
+-- Self-test (/yippyapp test): does everything except write
+-- ---------------------------------------------------------------------------
+-- Exercises the paths that break when something is deleted but still called: the bag scan and
+-- classification (which reads tooltips), every macro body, the tiers, and the Keep/Tier provider
+-- over the items actually in the bags. It must never touch a macro, so it sets AF.noWrite (which
+-- makes WriteMacro and CreateMacroByKey throw) and then proves it by comparing the write counters.
+function AF:SelfTest()
+    if not self.db then return false, "not loaded yet" end
+    local writes, creates = self.writeCount or 0, self.createCount or 0
+    local scanPending = self.scanPending
+    self.noWrite = true
+
+    local ok, result = pcall(function()
+        local lists = ScanBags()
+        local hasMana = (UnitPowerMax("player", 0) or 0) > 0
+        local plan = BuildPlan(self.db, lists, hasMana)
+
+        local bodies = 0
+        for slot, body in pairs(plan.bodies) do
+            assert(type(self.db[slot]) == "string", "no macro name for " .. tostring(slot))
+            assert(type(body) == "string" and body:match("^#showtooltip"),
+                "malformed macro body for " .. tostring(slot))
+            bodies = bodies + 1
+        end
+
+        local tiers, ranked = BuildTiers(lists, plan.protect, plan.foundScrolls, hasMana), 0
+        for _ in pairs(tiers) do ranked = ranked + 1 end
+
+        local data = LIB and LIB.GetData and LIB.GetData("AutoFeedConsumables")
+        assert(data and data.Keep and data.Tier, "AutoFeedConsumables is not published")
+        local items, kept = 0, 0
+        for bag = 0, LAST_BAG do
+            for slot = 1, C_Container.GetContainerNumSlots(bag) do
+                local info = C_Container.GetContainerItemInfo(bag, slot)
+                if info and info.itemID then
+                    items = items + 1
+                    if data.Keep(info.itemID) then kept = kept + 1 end
+                    local tier = data.Tier(info.itemID)
+                    assert(tier == nil or RANK[tier], "unknown tier: " .. tostring(tier))
+                end
+            end
+        end
+        return ("%d macro bodies, %d bag items, %d protected, %d ranked"):format(
+            bodies, items, kept, ranked)
+    end)
+
+    self.noWrite = nil
+    self.scanPending = scanPending   -- the test's scan isn't the one UpdateMacro retries for
+    if not ok then return false, tostring(result) end
+    if (self.writeCount or 0) ~= writes or (self.createCount or 0) ~= creates then
+        return false, "the self-test changed a macro"
+    end
+    return true, result
 end
 
 -- ---------------------------------------------------------------------------
@@ -905,6 +1037,10 @@ f:SetScript("OnEvent", function(_, event)
         if AF.RegisterLauncher then AF:RegisterLauncher() end
         C_Timer.After(2, function() AF:UpdateMacro() end) -- let item data cache first
         AF:RegisterWelcome()  -- the shared YippYapp window opens itself while no macro exists
+        AF:PublishConsumables()
+        if LIB and LIB.RegisterSelfTest then
+            LIB.RegisterSelfTest("AutoFeed", function() return AF:SelfTest() end)
+        end
     elseif event == "PLAYER_REGEN_ENABLED" then
         if AF.pending then AF:ScheduleUpdate() end
     elseif event == "UNIT_AURA" then
