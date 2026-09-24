@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.0-beta6
+
+- Updated shared YippYapp library.
+
 ## 1.4.0-beta5
 
 - Updated shared YippYapp library.

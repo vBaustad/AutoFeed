@@ -411,8 +411,14 @@ local function ReadPlayerAuras()
 end
 
 -- Best (highest-rank) scroll per stat that's in your bags.
+-- Which scrolls you own only changes when the bags do, so the sweep is keyed on the bag signature;
+-- which one you'd use changes with your buffs and is still decided per update in PickScroll. Out of
+-- combat every buff change runs an update, and this is a full bag walk with an item lookup per slot.
+local scrollScan, scrollScanSig
 local function ScanScrolls()
-    local found = {}
+    if scrollScan and scrollScanSig == AF.bagSig then return scrollScan end
+
+    local found, incomplete = {}, false
     for bag = 0, LAST_BAG do
         for slot = 1, C_Container.GetContainerNumSlots(bag) do
             local info = C_Container.GetContainerItemInfo(bag, slot)
@@ -423,6 +429,7 @@ local function ScanScrolls()
                     -- as Classify does, instead of reporting "all scroll buffs active".
                     C_Item.RequestLoadItemDataByID(info.itemID)
                     AF.scanPending = true
+                    incomplete = true
                 end
                 local stat = name and name:match("^Scroll of (%a+)")
                 if stat and STAT_SET[stat] then
@@ -432,13 +439,20 @@ local function ScanScrolls()
                         -- (Scroll of Protection -> "Armor"), so capture the actual
                         -- on-use buff name and check that.
                         local buffName = GetItemSpell(info.itemID)
-                        if not buffName then AF.scanPending = true end
+                        if not buffName then AF.scanPending = true; incomplete = true end
                         found[stat] = { id = info.itemID, rank = rank, name = name,
                             stat = stat, buffName = buffName }
                     end
                 end
             end
         end
+    end
+
+    -- Never cache a sweep that ran before the item data had loaded: the retry has to see the gap.
+    if incomplete then
+        scrollScan, scrollScanSig = nil, nil
+    else
+        scrollScan, scrollScanSig = found, AF.bagSig
     end
     return found
 end
